@@ -4,6 +4,14 @@ import UniformTypeIdentifiers
 import AVFoundation
 import WebKit
 
+private func voxiiPrefersRussianLanguage() -> Bool {
+    if let stored = UserDefaults.standard.string(forKey: "voxii_language")?.lowercased(), !stored.isEmpty {
+        return stored == "ru"
+    }
+    let preferred = Locale.preferredLanguages.first?.lowercased() ?? ""
+    return preferred.hasPrefix("ru")
+}
+
 private enum DMMessageTextPolicy {
     static let attachmentPlaceholder = "[voxii_attachment]"
     static let invisibleFallbackText = "\u{200B}"
@@ -150,23 +158,23 @@ struct ChatView: View {
             allowsMultipleSelection: false,
             onCompletion: handleFileSelection
         )
-        .confirmationDialog("Delete message?", isPresented: $isDeleteDialogPresented, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog(appearance.t("chat.deletePrompt"), isPresented: $isDeleteDialogPresented, titleVisibility: .visible) {
+            Button(appearance.t("common.delete"), role: .destructive) {
                 guard let messageID = messageIdForDelete else {
                     return
                 }
                 Task { await deleteMessage(messageID) }
             }
-            Button("Cancel", role: .cancel) {
+            Button(appearance.t("common.cancel"), role: .cancel) {
                 messageIdForDelete = nil
             }
         }
-        .alert("Error", isPresented: errorBinding) {
-            Button("OK", role: .cancel) {
+        .alert(appearance.t("common.error"), isPresented: errorBinding) {
+            Button(appearance.t("common.ok"), role: .cancel) {
                 errorMessage = nil
             }
         } message: {
-            Text(errorMessage ?? "Unknown error")
+            Text(errorMessage ?? appearance.t("common.unknownError"))
         }
         .fullScreenCover(isPresented: $isVideoCallPresented) {
             VideoCallView(
@@ -192,12 +200,12 @@ struct ChatView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .bold))
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+            .buttonStyle(VoxiiRoundButtonStyle(diameter: 40, variant: .neutral))
 
             VoxiiAvatarView(
                 text: peer.avatar ?? peer.username,
                 isOnline: peer.status?.lowercased() == "online",
-                size: 40
+                size: 44
             )
 
             VStack(alignment: .leading, spacing: 2) {
@@ -205,9 +213,7 @@ struct ChatView: View {
                     .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
 
-                Text(peer.status ?? "Offline")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(peer.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted)
+                peerStatusBadge
             }
 
             Spacer()
@@ -218,7 +224,7 @@ struct ChatView: View {
                 Image(systemName: "video.fill")
                     .font(.system(size: 14, weight: .bold))
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
+            .buttonStyle(VoxiiRoundButtonStyle(diameter: 40, variant: .accent))
             .disabled(session.token == nil || isSending || isRecordingVoice)
 
             Button {
@@ -227,62 +233,71 @@ struct ChatView: View {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 14, weight: .bold))
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+            .buttonStyle(VoxiiRoundButtonStyle(diameter: 40, variant: .neutral))
             .disabled(isSyncing)
         }
-        .voxiiCard(cornerRadius: 18, padding: 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(chatSurface(cornerRadius: 24, tint: VoxiiTheme.accentBlue.opacity(0.08)))
     }
 
     private var messagesArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(messages) { message in
-                        MessageBubbleView(
-                            message: message,
-                            isOutgoing: message.senderID == session.currentUser?.id,
-                            currentUsername: session.currentUser?.username,
-                            fileURL: message.file.flatMap { session.absoluteURL(for: $0.url) },
-                            onReply: {
-                                replyToMessage = message
-                                editingMessage = nil
-                            },
-                            onEdit: {
-                                editingMessage = message
-                                messageText = DMMessageTextPolicy.visibleText(
-                                    message.content,
-                                    hasAttachment: message.file != nil
-                                )
-                                replyToMessage = nil
-                            },
-                            onDelete: {
-                                messageIdForDelete = message.id
-                                isDeleteDialogPresented = true
-                            },
-                            onReactionTap: { reaction in
-                                Task { await toggleReaction(for: message.id, reaction: reaction) }
-                            },
-                            onReactionPick: { emoji in
-                                Task { await addReaction(to: message.id, emoji: emoji) }
-                            },
-                            onOpenFile: { url in
-                                openURL(url)
-                            }
-                        )
-                        .id(message.id)
+        ZStack {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            MessageBubbleView(
+                                message: message,
+                                isOutgoing: message.senderID == session.currentUser?.id,
+                                currentUsername: session.currentUser?.username,
+                                fileURL: message.file.flatMap { session.absoluteURL(for: $0.url) },
+                                onReply: {
+                                    replyToMessage = message
+                                    editingMessage = nil
+                                },
+                                onEdit: {
+                                    editingMessage = message
+                                    messageText = DMMessageTextPolicy.visibleText(
+                                        message.content,
+                                        hasAttachment: message.file != nil
+                                    )
+                                    replyToMessage = nil
+                                },
+                                onDelete: {
+                                    messageIdForDelete = message.id
+                                    isDeleteDialogPresented = true
+                                },
+                                onReactionTap: { reaction in
+                                    Task { await toggleReaction(for: message.id, reaction: reaction) }
+                                },
+                                onReactionPick: { emoji in
+                                    Task { await addReaction(to: message.id, emoji: emoji) }
+                                },
+                                onOpenFile: { url in
+                                    openURL(url)
+                                }
+                            )
+                            .id(message.id)
+                        }
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 14)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 12)
+                .onChange(of: messages.count) { _, _ in
+                    guard let lastID = messages.last?.id else {
+                        return
+                    }
+                    proxy.scrollTo(lastID, anchor: .bottom)
+                }
             }
-            .onChange(of: messages.count) { _, _ in
-                guard let lastID = messages.last?.id else {
-                    return
-                }
-                proxy.scrollTo(lastID, anchor: .bottom)
+
+            if messages.isEmpty && !isSyncing {
+                emptyMessagesState
+                    .padding(.horizontal, 28)
             }
         }
-        .voxiiCard(cornerRadius: 18, padding: 10)
+        .background(chatSurface(cornerRadius: 28, tint: Color.white.opacity(0.02)))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -290,7 +305,8 @@ struct ChatView: View {
         VStack(spacing: 8) {
             if let editingMessage {
                 actionBanner(
-                    title: "Editing message",
+                    icon: "square.and.pencil",
+                    title: appearance.t("chat.editing"),
                     detail: previewText(for: editingMessage),
                     onCancel: {
                         self.editingMessage = nil
@@ -299,7 +315,8 @@ struct ChatView: View {
                 )
             } else if let replyToMessage {
                 actionBanner(
-                    title: "Replying to \(replyToMessage.username ?? "Unknown")",
+                    icon: "arrowshape.turn.up.left.fill",
+                    title: appearance.tf("chat.replyingTo", replyToMessage.username ?? appearance.t("common.unknown")),
                     detail: previewText(for: replyToMessage),
                     onCancel: {
                         self.replyToMessage = nil
@@ -322,18 +339,14 @@ struct ChatView: View {
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(VoxiiTheme.accent)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(.thinMaterial)
-                            )
-                            .overlay(
-                                Circle()
-                                    .fill(VoxiiTheme.accent.opacity(0.08))
-                            )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(
+                        VoxiiRoundButtonStyle(
+                            diameter: 34,
+                            variant: .neutral,
+                            foregroundColor: VoxiiTheme.accentLight
+                        )
+                    )
                     .disabled(isSending || isRecordingVoice || editingMessage != nil)
 
                     TextField(composerPlaceholder, text: $messageText, axis: .vertical)
@@ -344,44 +357,10 @@ struct ChatView: View {
                         .autocorrectionDisabled(false)
                         .disabled(isRecordingVoice)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .frame(minHeight: VoxiiTheme.controlHeightRegular)
-                .background(
-                    RoundedRectangle(cornerRadius: VoxiiTheme.radiusXL, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: VoxiiTheme.radiusXL, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    VoxiiTheme.glassStrong.opacity(0.76),
-                                    VoxiiTheme.glass.opacity(0.7),
-                                    VoxiiTheme.accentBlue.opacity(0.05)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VoxiiTheme.radiusXL, style: .continuous)
-                        .stroke(VoxiiTheme.stroke.opacity(0.7), lineWidth: 1)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: VoxiiTheme.radiusXL, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.16), Color.white.opacity(0.02)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: VoxiiTheme.accentBlue.opacity(0.05), radius: 6, x: 0, y: 3)
-                .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .background(chatSurface(cornerRadius: 26, tint: VoxiiTheme.accent.opacity(0.08)))
 
                 Button {
                     handleComposerActionTap()
@@ -394,7 +373,7 @@ struct ChatView: View {
                             .font(.system(size: 17, weight: .bold))
                     }
                 }
-                .buttonStyle(VoxiiRoundButtonStyle(diameter: 44, variant: composerActionVariant))
+                .buttonStyle(VoxiiRoundButtonStyle(diameter: 48, variant: composerActionVariant))
                 .disabled(composerActionDisabled)
             }
         }
@@ -402,7 +381,7 @@ struct ChatView: View {
     }
 
     private var composerPlaceholder: String {
-        editingMessage == nil ? "Message" : "Update message"
+        editingMessage == nil ? appearance.t("chat.messagePlaceholder") : appearance.t("chat.updatePlaceholder")
     }
 
     private var canStartVoiceFromAction: Bool {
@@ -480,8 +459,17 @@ struct ChatView: View {
         )
     }
 
-    private func actionBanner(title: String, detail: String, onCancel: @escaping () -> Void) -> some View {
+    private func actionBanner(icon: String, title: String, detail: String, onCancel: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(VoxiiTheme.accentLight)
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                )
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -505,19 +493,13 @@ struct ChatView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(VoxiiTheme.glass)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
-        )
+        .background(chatBannerSurface(cornerRadius: 18, tint: VoxiiTheme.accent.opacity(0.08)))
     }
 
     private func attachmentBanner(_ attachment: PendingAttachment) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: attachment.isAudio ? "waveform" : "doc.fill")
+            Image(systemName: attachment.isAudio ? "waveform.circle.fill" : "doc.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(VoxiiTheme.accentLight)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -539,7 +521,7 @@ struct ChatView: View {
                         ProgressView()
                             .tint(.white)
                     } else {
-                        Text("Transcribe")
+                        Text(appearance.t("chat.transcribe"))
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                     }
                 }
@@ -559,14 +541,7 @@ struct ChatView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(VoxiiTheme.glass)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
-        )
+        .background(chatBannerSurface(cornerRadius: 18, tint: VoxiiTheme.accent.opacity(0.06)))
     }
 
     private var voiceRecordingBanner: some View {
@@ -574,19 +549,19 @@ struct ChatView: View {
             Image(systemName: "record.circle.fill")
                 .foregroundStyle(.red)
 
-            Text("Recording voice message...")
+            Text(appearance.t("chat.recording"))
                 .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(VoxiiTheme.text)
 
             Spacer()
 
-            Button("Cancel") {
+            Button(appearance.t("common.cancel")) {
                 finishVoiceRecording(save: false)
             }
             .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
             .disabled(isSending)
 
-            Button("Stop") {
+            Button(appearance.t("chat.stop")) {
                 finishVoiceRecording(save: true)
             }
             .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
@@ -594,14 +569,104 @@ struct ChatView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .background(chatBannerSurface(cornerRadius: 18, tint: VoxiiTheme.danger.opacity(0.08)))
+    }
+
+    private var peerStatusBadge: some View {
+        let isOnline = peer.status?.lowercased() == "online"
+
+        return HStack(spacing: 6) {
+            Circle()
+                .fill(isOnline ? VoxiiTheme.online : VoxiiTheme.mutedSecondary)
+                .frame(width: 7, height: 7)
+
+            Text(appearance.statusLabel(peer.status))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(isOnline ? VoxiiTheme.online : VoxiiTheme.muted)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(VoxiiTheme.glass)
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
         )
+    }
+
+    private var emptyMessagesState: some View {
+        VStack(spacing: 12) {
+            VoxiiAvatarView(
+                text: peer.avatar ?? peer.username,
+                isOnline: peer.status?.lowercased() == "online",
+                size: 62
+            )
+
+            Text(appearance.t("chat.emptyTitle"))
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+
+            Text(appearance.tf("chat.emptySubtitle", peer.username))
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(VoxiiTheme.muted)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .background(chatBannerSurface(cornerRadius: 24, tint: VoxiiTheme.accentBlue.opacity(0.05)))
+    }
+
+    private func chatSurface(cornerRadius: CGFloat, tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.08),
+                                tint,
+                                VoxiiTheme.glassStrong.opacity(0.72),
+                                Color.black.opacity(0.04)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.18), Color.white.opacity(0.04)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 6)
+    }
+
+    private func chatBannerSurface(cornerRadius: CGFloat, tint: Color) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.08),
+                        tint,
+                        VoxiiTheme.glass.opacity(0.82)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
     }
 
     private func loadMessages() async {
@@ -650,7 +715,7 @@ struct ChatView: View {
         do {
             if let editingMessage {
                 guard !trimmedText.isEmpty else {
-                    throw APIClientError.server("Message cannot be empty.")
+                    throw APIClientError.server(appearance.t("chat.messageEmpty"))
                 }
 
                 _ = try await session.updateMessage(messageID: editingMessage.id, text: trimmedText)
@@ -671,17 +736,29 @@ struct ChatView: View {
                 let requestFileIdDebug = requestFileId.map { String($0) } ?? "nil"
                 let preparedText: String = {
                     if isVoiceAttachment, trimmedText.isEmpty {
-                        return voiceFallbackText(for: uploadedAttachment)
+                        return DMMessageTextPolicy.invisibleFallbackText
                     }
                     return trimmedText
                 }()
 
                 if preparedText.isEmpty && uploadedFileId == nil {
-                    throw APIClientError.server("Message cannot be empty.")
+                    throw APIClientError.server(appearance.t("chat.messageEmpty"))
                 }
                 var sentMessage: DirectMessage
 
-                do {
+                if isVoiceAttachment, let uploadedAttachment {
+                    let voiceSocketText = trimmedText.isEmpty
+                        ? DMMessageTextPolicy.invisibleFallbackText
+                        : trimmedText
+                    print("[ChatView][Send] Sending voice DM over socket textLength=\(voiceSocketText.count) fileId=\(fileIdDebug) replyToId=\(replyIdDebug)")
+                    sentMessage = try await session.sendVoiceMessageOverSocket(
+                        to: peer.id,
+                        text: voiceSocketText,
+                        file: uploadedAttachment,
+                        replyToId: replyToMessage?.id,
+                        isVoiceMessage: true
+                    )
+                } else {
                     print("[ChatView][Send] Sending DM textLength=\(preparedText.count) fileId=\(requestFileIdDebug) uploadFileId=\(fileIdDebug) replyToId=\(replyIdDebug)")
                     sentMessage = try await session.sendMessage(
                         to: peer.id,
@@ -689,38 +766,13 @@ struct ChatView: View {
                         fileId: requestFileId,
                         file: uploadedAttachment,
                         replyToId: replyToMessage?.id,
-                        isVoiceMessage: isVoiceAttachment ? true : nil
-                    )
-                } catch {
-                    guard shouldRetryWithVoiceURL(after: error),
-                          isVoiceAttachment,
-                          preparedText.isEmpty,
-                          uploadedAttachment != nil else {
-                        throw error
-                    }
-
-                    let fallbackText = voiceFallbackText(for: uploadedAttachment)
-                    print("[ChatView][Send] Retrying DM with voice fallback textLength=\(fallbackText.count) fileId=\(fileIdDebug)")
-                    sentMessage = try await session.sendMessage(
-                        to: peer.id,
-                        text: fallbackText,
-                        fileId: requestFileId,
-                        file: uploadedAttachment,
-                        replyToId: replyToMessage?.id,
-                        isVoiceMessage: true
+                        isVoiceMessage: nil
                     )
                 }
 
                 if uploadedFileId != nil && sentMessage.file == nil {
                     print("[ChatView][Send] Warning: DM saved without attached file in response (messageId=\(sentMessage.id))")
                     if let uploadedAttachment {
-                        if isVoiceAttachment,
-                           DMMessageTextPolicy.voiceUploadReference(from: sentMessage.content) == nil {
-                            let fallbackText = voiceFallbackText(for: uploadedAttachment)
-                            if DMMessageTextPolicy.voiceUploadReference(from: fallbackText) != nil {
-                                sentMessage = messageWithOverriddenContent(sentMessage, content: fallbackText)
-                            }
-                        }
                         localAttachmentByMessageID[sentMessage.id] = uploadedAttachment
                         sentMessage = messageWithOverriddenFile(sentMessage, file: uploadedAttachment)
                     }
@@ -741,30 +793,6 @@ struct ChatView: View {
             print("[ChatView][Send] Failed: \(error.localizedDescription)")
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-
-    private func shouldRetryWithVoiceURL(after error: Error) -> Bool {
-        let message = ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription).lowercased()
-        return message.contains("message text is required")
-            || message.contains("text is required")
-            || message.contains("text or file is required")
-    }
-
-    private func voiceFallbackText(for attachment: APIFileAttachment?) -> String {
-        guard let attachment else {
-            return DMMessageTextPolicy.invisibleFallbackText
-        }
-
-        if let reference = DMMessageTextPolicy.voiceUploadReference(from: attachment.url) {
-            return reference
-        }
-
-        if let absolute = session.absoluteURL(for: attachment.url)?.absoluteString,
-           let reference = DMMessageTextPolicy.voiceUploadReference(from: absolute) {
-            return reference
-        }
-
-        return DMMessageTextPolicy.invisibleFallbackText
     }
 
     private func deleteMessage(_ messageID: Int) async {
@@ -798,9 +826,8 @@ struct ChatView: View {
 
         let attempts: [(filename: String, mimeType: String)] = [
             (attachment.filename, attachment.mimeType), // primary
-            ("\(baseName).m4a", "audio/m4a"),          // iOS voice format
-            ("\(baseName).m4a", "audio/mp4"),          // MIME fallback with voice extension
-            ("\(baseName).webm", "audio/webm")         // web-compatible fallback
+            ("\(baseName).m4a", "audio/mp4"),          // canonical MIME for AAC in MP4 container
+            ("\(baseName).m4a", "audio/m4a")           // backend compatibility fallback
         ]
 
         var lastError: Error?
@@ -820,7 +847,7 @@ struct ChatView: View {
             }
         }
 
-        throw lastError ?? APIClientError.server("Failed to upload voice message.")
+        throw lastError ?? APIClientError.server(appearance.t("chat.uploadVoiceFailed"))
     }
 
     private func addReaction(to messageID: Int, emoji: String) async {
@@ -903,7 +930,7 @@ struct ChatView: View {
         do {
             let data = try Data(contentsOf: url)
             if data.count > 10 * 1024 * 1024 {
-                throw APIClientError.server("File is too large. Maximum size is 10MB.")
+                throw APIClientError.server(appearance.t("chat.fileTooLarge"))
             }
 
             let mimeType = UTType.mimeType(for: url.pathExtension.lowercased())
@@ -934,18 +961,18 @@ struct ChatView: View {
         }
 
         guard editingMessage == nil else {
-            errorMessage = "Voice recording is disabled while editing a message."
+            errorMessage = appearance.t("chat.voiceWhileEditing")
             return
         }
 
         guard pendingAttachment == nil else {
-            errorMessage = "Remove current attachment before recording."
+            errorMessage = appearance.t("chat.removeAttachmentFirst")
             return
         }
 
         let granted = await requestMicrophonePermission()
         guard granted else {
-            errorMessage = "Microphone access denied. Enable it in iOS Settings."
+            errorMessage = appearance.t("chat.microphoneDenied")
             return
         }
 
@@ -969,7 +996,7 @@ struct ChatView: View {
             recorder.prepareToRecord()
 
             guard recorder.record() else {
-                throw APIClientError.server("Unable to start voice recording.")
+                throw APIClientError.server(appearance.t("chat.voiceStartFailed"))
             }
 
             voiceRecorder = recorder
@@ -1004,23 +1031,24 @@ struct ChatView: View {
 
         guard duration >= 0.25 else {
             cleanupVoiceRecordingFile()
-            errorMessage = "Voice message is too short."
+            errorMessage = appearance.t("chat.voiceTooShort")
             return
         }
 
         guard let voiceRecordingURL else {
-            errorMessage = "Recorded file not found."
+            errorMessage = appearance.t("chat.voiceFileMissing")
             return
         }
 
         do {
             let data = try Data(contentsOf: voiceRecordingURL)
             if data.count > 10 * 1024 * 1024 {
-                throw APIClientError.server("Voice message is too large. Maximum size is 10MB.")
+                throw APIClientError.server(appearance.t("chat.voiceTooLarge"))
             }
 
             let filename = "voice_message_\(Int(Date().timeIntervalSince1970)).m4a"
-            let mimeType = "audio/m4a"
+            // Use canonical MIME for AAC in M4A to improve browser playback.
+            let mimeType = "audio/mp4"
             pendingAttachment = PendingAttachment(filename: filename, mimeType: mimeType, data: data)
             errorMessage = nil
             cleanupVoiceRecordingFile()
@@ -1072,7 +1100,7 @@ struct ChatView: View {
 
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else {
-                throw APIClientError.server("No speech detected in selected audio.")
+                throw APIClientError.server(appearance.t("chat.noSpeechDetected"))
             }
 
             if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1097,14 +1125,14 @@ struct ChatView: View {
         }
 
         if let file = message.file {
-            return "Attachment: \(file.filename)"
+            return appearance.tf("chat.attachment", file.filename)
         }
 
         if DMMessageTextPolicy.voiceUploadReference(from: message.content) != nil {
-            return "Voice message"
+            return appearance.t("chat.voiceMessage")
         }
 
-        return "No text"
+        return appearance.t("chat.noText")
     }
 
     private func messageWithOverriddenFile(_ message: DirectMessage, file: APIFileAttachment?) -> DirectMessage {
@@ -1200,12 +1228,12 @@ private struct MessageBubbleView: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if isOutgoing {
                 Spacer(minLength: 40)
             }
 
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 8) {
                 header
 
                 if let reply = message.replyTo {
@@ -1236,32 +1264,20 @@ private struct MessageBubbleView: View {
                 reactionSection
                 actionSection
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(
-                ZStack {
-                    if !isOutgoing {
-                        RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                    }
-
-                    RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
-                        .fill(bubbleFillStyle)
-
-                    RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
-                        .fill(bubbleGlossStyle)
-                        .blendMode(.screen)
-                }
-            )
+            .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 13)
+            .background(bubbleBackground)
             .overlay(
-                RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
+                bubbleShape
                     .stroke(bubbleStrokeStyle, lineWidth: 1)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: max(8, bubbleCornerRadius - 2), style: .continuous)
+                bubbleShape
                     .stroke(Color.black.opacity(0.08), lineWidth: 0.4)
+                    .padding(1)
             )
-            .shadow(color: bubbleShadowColor, radius: 10, x: 0, y: 6)
+            .shadow(color: bubbleShadowColor, radius: 9, x: 0, y: 6)
 
             if !isOutgoing {
                 Spacer(minLength: 40)
@@ -1270,36 +1286,18 @@ private struct MessageBubbleView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             if !isOutgoing {
-                Text(message.username ?? "Unknown")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.accentLight)
-            }
-
-            if message.edited {
-                Text("edited")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
-                    )
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : VoxiiTheme.muted)
+                senderChip
             }
 
             Spacer(minLength: 0)
 
-            Text(MessageDate.shortTime(message.createdAt))
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule()
-                        .fill(Color.white.opacity(isOutgoing ? 0.16 : 0.09))
-                )
-                .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : VoxiiTheme.muted)
+            if message.edited {
+                metadataChip(appearance.t("chat.edited"))
+            }
+
+            metadataChip(MessageDate.shortTime(message.createdAt))
         }
     }
 
@@ -1310,30 +1308,37 @@ private struct MessageBubbleView: View {
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replyVoiceURL = DMMessageTextPolicy.voiceUploadReference(from: reply.text ?? "")
 
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("↪ \(reply.author ?? "Unknown")")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : VoxiiTheme.accentLight)
+        return HStack(alignment: .top, spacing: 9) {
+            RoundedRectangle(cornerRadius: 99, style: .continuous)
+                .fill(isOutgoing ? Color.white.opacity(0.92) : VoxiiTheme.accentLight)
+                .frame(width: 3)
 
-            if let text = visibleReplyText, !text.isEmpty {
-                Text(text)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
-                    .lineLimit(1)
-            } else if let file = reply.file {
-                Text("📎 \(file.filename)")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
-                    .lineLimit(1)
-            } else if replyVoiceURL != nil {
-                Text("🎤 Voice message")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(appearance.tf("chat.replyAuthor", reply.author ?? appearance.t("common.unknown")))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
+
+                if let text = visibleReplyText, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
+                        .lineLimit(1)
+                } else if let file = reply.file {
+                    Text(appearance.tf("chat.attachmentInline", file.filename))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
+                        .lineLimit(1)
+                } else if replyVoiceURL != nil {
+                    Text(appearance.t("chat.voiceInline"))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
+                        .lineLimit(1)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
         .background(inlinePanelBackground(cornerRadius: 12))
     }
 
@@ -1343,8 +1348,14 @@ private struct MessageBubbleView: View {
                 VoiceMessagePlayerView(url: fileURL, isOutgoing: isOutgoing)
             } else {
                 HStack(spacing: 8) {
-                    Image(systemName: iconForFile(file))
-                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : VoxiiTheme.accentLight)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
+                        Image(systemName: iconForFile(file))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
+                    }
+                    .frame(width: 36, height: 36)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.filename)
@@ -1362,16 +1373,27 @@ private struct MessageBubbleView: View {
                     Spacer()
 
                     if let fileURL {
-                        Button("Open") {
+                        Button {
                             onOpenFile(fileURL)
+                        } label: {
+                            Image(systemName: "arrow.up.forward")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
+                                .frame(width: 30, height: 30)
                         }
-                        .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                        .buttonStyle(
+                            MessageBubbleActionIconStyle(
+                                backgroundTint: Color.white.opacity(isOutgoing ? 0.14 : 0.08),
+                                strokeTint: Color.white.opacity(isOutgoing ? 0.18 : 0.1)
+                            )
+                        )
+                        .accessibilityLabel(appearance.t("common.open"))
                     }
                 }
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
         .background(inlinePanelBackground(cornerRadius: 14))
     }
 
@@ -1401,10 +1423,10 @@ private struct MessageBubbleView: View {
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(reactedByCurrentUser(reaction) ? VoxiiTheme.accent.opacity(0.32) : Color.white.opacity(isOutgoing ? 0.12 : 0.07))
+                                .fill(reactedByCurrentUser(reaction) ? VoxiiTheme.accent.opacity(0.28) : Color.white.opacity(isOutgoing ? 0.12 : 0.05))
                                 .overlay(
                                     Capsule()
-                                        .stroke(Color.white.opacity(isOutgoing ? 0.24 : 0.12), lineWidth: 0.8)
+                                        .stroke(Color.white.opacity(isOutgoing ? 0.2 : 0.1), lineWidth: 0.8)
                                 )
                         )
                     }
@@ -1421,35 +1443,82 @@ private struct MessageBubbleView: View {
                     Image(systemName: "face.smiling")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(isOutgoing ? .white : VoxiiTheme.accent)
-                        .frame(width: 24, height: 24)
+                        .frame(width: 28, height: 28)
                         .background(
                             Circle()
                                 .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.white.opacity(isOutgoing ? 0.18 : 0.1), lineWidth: 0.8)
+                                )
                         )
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var actionSection: some View {
-        HStack(spacing: 10) {
-            Button("Reply") {
-                onReply()
-            }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+        HStack(spacing: 8) {
+            actionIconButton(
+                systemImage: "arrowshape.turn.up.left.fill",
+                accessibilityLabel: appearance.t("common.reply"),
+                tint: isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight,
+                backgroundTint: isOutgoing ? Color.white.opacity(0.14) : Color.white.opacity(0.08),
+                strokeTint: Color.white.opacity(isOutgoing ? 0.18 : 0.1),
+                action: onReply
+            )
 
             if isOutgoing {
-                Button("Edit") {
-                    onEdit()
-                }
-                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                actionIconButton(
+                    systemImage: "square.and.pencil",
+                    accessibilityLabel: appearance.t("common.edit"),
+                    tint: Color.white.opacity(0.94),
+                    backgroundTint: Color.white.opacity(0.14),
+                    strokeTint: Color.white.opacity(0.18),
+                    action: onEdit
+                )
 
-                Button("Delete") {
-                    onDelete()
-                }
-                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
+                actionIconButton(
+                    systemImage: "trash.fill",
+                    accessibilityLabel: appearance.t("common.delete"),
+                    tint: Color(hex: "#FFB3B3") ?? VoxiiTheme.danger,
+                    backgroundTint: VoxiiTheme.danger.opacity(0.18),
+                    strokeTint: VoxiiTheme.danger.opacity(0.34),
+                    action: onDelete
+                )
             }
         }
+        .padding(.top, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(isOutgoing ? 0.09 : 0.05))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(isOutgoing ? 0.12 : 0.08), lineWidth: 0.8)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func actionIconButton(
+        systemImage: String,
+        accessibilityLabel: String,
+        tint: Color,
+        backgroundTint: Color,
+        strokeTint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(MessageBubbleActionIconStyle(backgroundTint: backgroundTint, strokeTint: strokeTint))
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func reactedByCurrentUser(_ reaction: ReactionSummary) -> Bool {
@@ -1511,8 +1580,54 @@ private struct MessageBubbleView: View {
         return detector.firstMatch(in: text, options: [], range: range)?.url?.absoluteString
     }
 
+    private var bubbleMaxWidth: CGFloat {
+        352
+    }
+
     private var bubbleCornerRadius: CGFloat {
-        VoxiiTheme.radiusM + 2
+        VoxiiTheme.radiusM + 4
+    }
+
+    private var bubbleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            cornerRadii: .init(
+                topLeading: bubbleCornerRadius,
+                bottomLeading: isOutgoing ? bubbleCornerRadius : 10,
+                bottomTrailing: isOutgoing ? 10 : bubbleCornerRadius,
+                topTrailing: bubbleCornerRadius
+            ),
+            style: .continuous
+        )
+    }
+
+    private var bubbleBackground: some View {
+        ZStack {
+            bubbleShape
+                .fill(isOutgoing ? AnyShapeStyle(Color.white.opacity(0.02)) : AnyShapeStyle(.ultraThinMaterial))
+
+            bubbleShape
+                .fill(bubbleFillStyle)
+
+            bubbleShape
+                .fill(bubbleAccentWash)
+
+            bubbleShape
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(isOutgoing ? 0.08 : 0.06),
+                            .clear,
+                            Color.black.opacity(0.04)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+            bubbleShape
+                .fill(bubbleGlossStyle)
+                .blendMode(.screen)
+        }
     }
 
     private var bubbleFillStyle: AnyShapeStyle {
@@ -1520,10 +1635,12 @@ private struct MessageBubbleView: View {
             return AnyShapeStyle(
                 LinearGradient(
                     colors: [
+                        VoxiiTheme.accentLight.opacity(0.88),
                         VoxiiTheme.accent.opacity(0.96),
-                        VoxiiTheme.accentBlue.opacity(0.9)
+                        VoxiiTheme.accentBlue.opacity(0.9),
+                        VoxiiTheme.accent.opacity(0.92)
                     ],
-                    startPoint: .topLeading,
+                    startPoint: .topTrailing,
                     endPoint: .bottomTrailing
                 )
             )
@@ -1532,9 +1649,10 @@ private struct MessageBubbleView: View {
         return AnyShapeStyle(
             LinearGradient(
                 colors: [
-                    VoxiiTheme.glassStrong.opacity(0.78),
-                    VoxiiTheme.glass.opacity(0.62),
-                    VoxiiTheme.glassSoft.opacity(0.72)
+                    Color.white.opacity(0.08),
+                    VoxiiTheme.glassStrong.opacity(0.84),
+                    VoxiiTheme.glass.opacity(0.68),
+                    VoxiiTheme.glassSoft.opacity(0.78)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -1542,11 +1660,23 @@ private struct MessageBubbleView: View {
         )
     }
 
+    private var bubbleAccentWash: RadialGradient {
+        RadialGradient(
+            colors: [
+                isOutgoing ? Color.white.opacity(0.18) : VoxiiTheme.accentBlue.opacity(0.1),
+                .clear
+            ],
+            center: isOutgoing ? .topTrailing : .topLeading,
+            startRadius: 4,
+            endRadius: 120
+        )
+    }
+
     private var bubbleGlossStyle: LinearGradient {
         LinearGradient(
             colors: [
-                Color.white.opacity(isOutgoing ? 0.22 : 0.14),
-                Color.white.opacity(isOutgoing ? 0.08 : 0.04),
+                Color.white.opacity(isOutgoing ? 0.24 : 0.14),
+                Color.white.opacity(isOutgoing ? 0.11 : 0.05),
                 .clear
             ],
             startPoint: .topLeading,
@@ -1557,8 +1687,8 @@ private struct MessageBubbleView: View {
     private var bubbleStrokeStyle: LinearGradient {
         LinearGradient(
             colors: [
-                Color.white.opacity(isOutgoing ? 0.32 : 0.2),
-                Color.white.opacity(isOutgoing ? 0.12 : 0.07)
+                Color.white.opacity(isOutgoing ? 0.28 : 0.18),
+                Color.white.opacity(isOutgoing ? 0.12 : 0.05)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -1566,7 +1696,7 @@ private struct MessageBubbleView: View {
     }
 
     private var bubbleShadowColor: Color {
-        (isOutgoing ? VoxiiTheme.accent : .black).opacity(isOutgoing ? 0.18 : 0.16)
+        (isOutgoing ? VoxiiTheme.accentBlue : .black).opacity(isOutgoing ? 0.18 : 0.13)
     }
 
     private func inlinePanelBackground(cornerRadius: CGFloat) -> some View {
@@ -1575,7 +1705,8 @@ private struct MessageBubbleView: View {
                 LinearGradient(
                     colors: [
                         Color.white.opacity(isOutgoing ? 0.18 : 0.09),
-                        Color.white.opacity(isOutgoing ? 0.1 : 0.04)
+                        (isOutgoing ? VoxiiTheme.accentLight.opacity(0.12) : VoxiiTheme.accent.opacity(0.08)),
+                        Color.black.opacity(0.04)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -1586,9 +1717,78 @@ private struct MessageBubbleView: View {
                     .stroke(Color.white.opacity(isOutgoing ? 0.26 : 0.12), lineWidth: 0.8)
             )
     }
+
+    private var senderChip: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(VoxiiTheme.accentLight)
+                .frame(width: 6, height: 6)
+
+            Text(message.username ?? appearance.t("common.unknown"))
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.accentLight)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.1), lineWidth: 0.8)
+        )
+    }
+
+    private func metadataChip(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.16 : 0.08), lineWidth: 0.8)
+            )
+            .foregroundStyle(isOutgoing ? Color.white.opacity(0.8) : VoxiiTheme.muted)
+    }
+}
+
+private struct MessageBubbleActionIconStyle: ButtonStyle {
+    let backgroundTint: Color
+    let strokeTint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Circle()
+                    .fill(backgroundTint)
+            )
+            .overlay(
+                Circle()
+                    .stroke(strokeTint, lineWidth: 0.8)
+            )
+            .scaleEffect(configuration.isPressed ? 0.93 : 1)
+            .brightness(configuration.isPressed ? -0.02 : 0)
+            .shadow(
+                color: Color.black.opacity(configuration.isPressed ? 0.08 : 0.14),
+                radius: configuration.isPressed ? 3 : 6,
+                x: 0,
+                y: configuration.isPressed ? 2 : 4
+            )
+            .contentShape(Circle())
+            .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.78), value: configuration.isPressed)
+    }
 }
 
 private struct VoiceMessagePlayerView: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
     let url: URL
     let isOutgoing: Bool
 
@@ -1621,7 +1821,7 @@ private struct VoiceMessagePlayerView: View {
                 .disabled(player.isLoading)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Voice message")
+                    Text(appearance.t("chat.voiceMessage"))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
                         .lineLimit(1)
@@ -1731,7 +1931,7 @@ private final class VoiceMessagePlayerModel: ObservableObject {
                     self.updateDuration(from: item.duration)
                 case .failed:
                     self.isLoading = false
-                    self.errorText = item.error?.localizedDescription ?? "Cannot play this voice message."
+                    self.errorText = item.error?.localizedDescription ?? Self.localizedPlaybackError()
                 default:
                     self.isLoading = true
                 }
@@ -1905,6 +2105,13 @@ private final class VoiceMessagePlayerModel: ObservableObject {
         let remaining = total % 60
         return "\(minutes):" + String(format: "%02d", remaining)
     }
+
+    private static func localizedPlaybackError() -> String {
+        if voxiiPrefersRussianLanguage() {
+            return "Не удалось воспроизвести голосовое сообщение."
+        }
+        return "Cannot play this voice message."
+    }
 }
 
 private extension Notification.Name {
@@ -1957,7 +2164,7 @@ private struct LinkPreviewCard: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("Hide preview") {
+            Button(appearance.t("chat.hidePreview")) {
                 appearance.hidePreview(messageID: messageID, urlString: urlString)
             }
         }
@@ -1987,7 +2194,7 @@ private struct LinkPreviewCard: View {
     }
 
     private var previewSite: String {
-        normalized(metadata.flatMap { $0.siteName }) ?? URL(string: urlString)?.host ?? "Link"
+        normalized(metadata.flatMap { $0.siteName }) ?? URL(string: urlString)?.host ?? appearance.t("common.link")
     }
 
     private func normalized(_ value: String?) -> String? {
@@ -2102,7 +2309,7 @@ private enum VideoCallState: Equatable {
 
 @MainActor
 private final class VideoCallController: ObservableObject {
-    @Published var statusText = "Connecting..."
+    @Published var statusText = VideoCallController.localizedConnectingShort()
     @Published var state: VideoCallState = .connecting
     @Published var isAudioEnabled = true
     @Published var isVideoEnabled = true
@@ -2174,7 +2381,7 @@ private final class VideoCallController: ObservableObject {
             incomingCallerName = payload["caller"] as? String
             state = .incoming
         case "error":
-            errorMessage = payload["message"] as? String ?? "Video call error."
+            errorMessage = payload["message"] as? String ?? Self.localizedVideoError()
         case "ended":
             state = .ended
         default:
@@ -2184,6 +2391,14 @@ private final class VideoCallController: ObservableObject {
 
     private func run(_ script: String) {
         webView?.evaluateJavaScript(script)
+    }
+
+    private static func localizedConnectingShort() -> String {
+        voxiiPrefersRussianLanguage() ? "Подключение..." : "Connecting..."
+    }
+
+    private static func localizedVideoError() -> String {
+        voxiiPrefersRussianLanguage() ? "Ошибка видеозвонка." : "Video call error."
     }
 }
 
@@ -2358,6 +2573,7 @@ private extension Data {
 
 struct VideoCallView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appearance: VoxiiAppearance
 
     let config: VideoCallConfig
     let onClose: () -> Void
@@ -2406,6 +2622,7 @@ struct VideoCallView: View {
         }
         .ignoresSafeArea()
         .onAppear {
+            controller.statusText = appearance.t("call.connectingShort")
             do {
                 try activateCallAudioSession()
             } catch {
@@ -2429,7 +2646,7 @@ struct VideoCallView: View {
                 }
             }
         }
-        .alert("Call Error", isPresented: Binding(
+        .alert(appearance.t("call.errorTitle"), isPresented: Binding(
             get: { controller.errorMessage != nil },
             set: { newValue in
                 if !newValue {
@@ -2437,11 +2654,11 @@ struct VideoCallView: View {
                 }
             }
         )) {
-            Button("Close", role: .cancel) {
+            Button(appearance.t("common.close"), role: .cancel) {
                 controller.endCall()
             }
         } message: {
-            Text(controller.errorMessage ?? "Unknown error")
+            Text(controller.errorMessage ?? appearance.t("common.unknownError"))
         }
     }
 
@@ -2476,7 +2693,7 @@ struct VideoCallView: View {
 
             Spacer()
 
-            Text("Video")
+            Text(appearance.t("call.video"))
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 10)
@@ -2541,7 +2758,7 @@ struct VideoCallView: View {
 
     private var incomingOverlay: some View {
         VStack(spacing: 14) {
-            Text("Incoming Video Call")
+            Text(appearance.t("call.incomingVideo"))
                 .font(.system(size: 16, weight: .bold, design: .rounded))
                 .foregroundStyle(VoxiiTheme.text)
 
@@ -2550,7 +2767,7 @@ struct VideoCallView: View {
                 .foregroundStyle(VoxiiTheme.muted)
 
             HStack(spacing: 14) {
-                Button("Decline") {
+                Button(appearance.t("call.decline")) {
                     VoxiiRingtonePlayer.shared.stopIfNeeded()
                     controller.rejectIncoming()
                 }
@@ -2564,7 +2781,7 @@ struct VideoCallView: View {
                             .tint(.white)
                             .frame(minWidth: 76, minHeight: 20)
                     } else {
-                        Text("Accept")
+                        Text(appearance.t("call.accept"))
                     }
                 }
                 .buttonStyle(VoxiiGradientButtonStyle())
@@ -2586,15 +2803,15 @@ struct VideoCallView: View {
     private var placeholderText: String {
         switch controller.state {
         case .connecting:
-            return "Connecting to call engine..."
+            return appearance.t("call.connectingEngine")
         case .calling:
-            return "Calling \(config.peer.username)..."
+            return appearance.tf("call.callingUser", config.peer.username)
         case .incoming:
-            return "Incoming call..."
+            return appearance.t("call.incoming")
         case .connected:
-            return "Waiting for remote video..."
+            return appearance.t("call.waitingRemoteVideo")
         case .ended:
-            return "Call ended"
+            return appearance.t("call.ended")
         }
     }
 
@@ -2623,7 +2840,7 @@ struct VideoCallView: View {
 
         let microphoneGranted = await requestMicrophonePermission()
         guard microphoneGranted else {
-            controller.errorMessage = "Microphone access is required for calls. Enable it in iOS Settings."
+            controller.errorMessage = appearance.t("call.microphoneRequired")
             return
         }
 
@@ -2631,7 +2848,7 @@ struct VideoCallView: View {
         if !isAudioOnlyCall {
             let cameraGranted = await requestCameraPermission()
             guard cameraGranted else {
-                controller.errorMessage = "Camera access is required for video calls. Enable it in iOS Settings."
+                controller.errorMessage = appearance.t("call.cameraRequired")
                 return
             }
         }
@@ -2837,7 +3054,7 @@ private struct VideoCallWebContainer: UIViewRepresentable {
                 mode: config.mode.rawValue,
                 callType: config.callType,
                 selfId: config.selfUser?.id ?? 0,
-                selfUsername: config.selfUser?.username ?? "Unknown",
+                selfUsername: config.selfUser?.username ?? localizedUnknownLabel(),
                 peerId: config.peer.id,
                 peerUsername: config.peer.username,
                 initialIncomingSocketId: config.initialIncomingSocketId,
@@ -3335,6 +3552,10 @@ private struct VideoCallWebContainer: UIViewRepresentable {
             </body>
             </html>
             """
+        }
+
+        private func localizedUnknownLabel() -> String {
+            voxiiPrefersRussianLanguage() ? "Неизвестно" : "Unknown"
         }
     }
 }

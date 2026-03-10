@@ -739,9 +739,22 @@ struct SendMessageSocketEnvelope: Encodable {
         case fileId
         case fileIdSnake = "file_id"
         case attachmentId = "attachment_id"
+        case attachment
+        case attachments
+        case filename
+        case fileUrl = "file_url"
+        case url
+        case type
+        case mimeType
+        case mimetype
+        case size
         case replyTo
         case isVoiceMessage
         case isVoiceMessageSnake = "is_voice_message"
+        case voiceMessage
+        case voiceMessageSnake = "voice_message"
+        case messageType
+        case folder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -763,10 +776,26 @@ struct SendMessageSocketEnvelope: Encodable {
             try container.encode(fileId, forKey: .attachmentId)
         }
 
+        if let file {
+            try container.encode(file, forKey: .attachment)
+            try container.encode([file], forKey: .attachments)
+            try container.encode(file.filename, forKey: .filename)
+            try container.encode(file.url, forKey: .url)
+            try container.encode(file.url, forKey: .fileUrl)
+            try container.encodeIfPresent(file.type, forKey: .type)
+            try container.encodeIfPresent(file.type, forKey: .mimeType)
+            try container.encodeIfPresent(file.type, forKey: .mimetype)
+            try container.encodeIfPresent(file.size, forKey: .size)
+        }
+
         try container.encodeIfPresent(replyTo, forKey: .replyTo)
         if let isVoiceMessage {
             try container.encode(isVoiceMessage, forKey: .isVoiceMessage)
             try container.encode(isVoiceMessage, forKey: .isVoiceMessageSnake)
+            try container.encode(isVoiceMessage, forKey: .voiceMessage)
+            try container.encode(isVoiceMessage, forKey: .voiceMessageSnake)
+            try container.encode("voice", forKey: .messageType)
+            try container.encode("voice_messages", forKey: .folder)
         }
     }
 }
@@ -807,6 +836,10 @@ struct SendMessageRequest: Encodable {
         case replyToIdSnake = "reply_to_id"
         case isVoiceMessage
         case isVoiceMessageSnake = "is_voice_message"
+        case voiceMessage
+        case voiceMessageSnake = "voice_message"
+        case messageType
+        case folder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -869,6 +902,10 @@ struct SendMessageRequest: Encodable {
         if let isVoiceMessage {
             try container.encode(isVoiceMessage, forKey: .isVoiceMessage)
             try container.encode(isVoiceMessage, forKey: .isVoiceMessageSnake)
+            try container.encode(isVoiceMessage, forKey: .voiceMessage)
+            try container.encode(isVoiceMessage, forKey: .voiceMessageSnake)
+            try container.encode("voice", forKey: .messageType)
+            try container.encode("voice_messages", forKey: .folder)
         }
     }
 }

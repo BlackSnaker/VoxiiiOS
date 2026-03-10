@@ -3,6 +3,7 @@ import SwiftUI
 struct ServerSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var appearance: VoxiiAppearance
     @State private var draftURL: String
     @State private var isChecking = false
     @State private var connectionMessage: String?
@@ -21,20 +22,20 @@ struct ServerSettingsView: View {
 
                 VStack(spacing: 12) {
                     HStack {
-                        Button("Cancel") {
+                        Button(appearance.t("common.cancel")) {
                             dismiss()
                         }
                         .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
 
                         Spacer()
 
-                        Text("Voxii Server")
+                        Text(appearance.t("server.title"))
                             .font(.system(size: 18, weight: .bold, design: .rounded))
                             .foregroundStyle(VoxiiTheme.text)
 
                         Spacer()
 
-                        Button("Apply") {
+                        Button(appearance.t("common.apply")) {
                             Task { await applyServerURL() }
                         }
                         .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
@@ -43,7 +44,7 @@ struct ServerSettingsView: View {
                     .voxiiCard(cornerRadius: 18, padding: 12)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("SERVER URL")
+                        Text(appearance.t("server.urlLabel"))
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(VoxiiTheme.mutedSecondary)
 
@@ -57,7 +58,7 @@ struct ServerSettingsView: View {
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "network")
-                                    Text("Test Connection")
+                                    Text(appearance.t("server.testConnection"))
                                 }
                             }
                             .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
@@ -83,23 +84,23 @@ struct ServerSettingsView: View {
                     .voxiiCard(cornerRadius: 16, padding: 14)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("QUICK PRESETS")
+                        Text(appearance.t("server.quickPresets"))
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(VoxiiTheme.mutedSecondary)
 
-                        Button("Production Server") {
+                        Button(appearance.t("server.production")) {
                             draftURL = "https://voxii.lenuma.ru"
                             resetStatus()
                         }
                         .buttonStyle(VoxiiGradientButtonStyle(variant: .neutral))
 
-                        Button("Localhost (Simulator)") {
+                        Button(appearance.t("server.localhost")) {
                             draftURL = "http://127.0.0.1:3000"
                             resetStatus()
                         }
                         .buttonStyle(VoxiiGradientButtonStyle(variant: .neutral))
 
-                        Button("Example LAN Address") {
+                        Button(appearance.t("server.lanExample")) {
                             draftURL = "http://192.168.1.10:3000"
                             resetStatus()
                         }
@@ -108,21 +109,21 @@ struct ServerSettingsView: View {
                     .voxiiCard(cornerRadius: 16, padding: 14)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("NOTES")
+                        Text(appearance.t("server.notes"))
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(VoxiiTheme.mutedSecondary)
 
-                        Text("Use 127.0.0.1 in iOS Simulator when Voxii backend runs on the same Mac.")
+                        Text(appearance.t("server.note1"))
                             .foregroundStyle(VoxiiTheme.muted)
-                        Text("Default production server: https://voxii.lenuma.ru")
+                        Text(appearance.t("server.note2"))
                             .foregroundStyle(VoxiiTheme.muted)
-                        Text("Use your production domain with a valid certificate for iPhone and App Store builds.")
+                        Text(appearance.t("server.note3"))
                             .foregroundStyle(VoxiiTheme.muted)
-                        Text("For physical iPhone, use your Mac LAN IP and ensure both devices are in one network.")
+                        Text(appearance.t("server.note4"))
                             .foregroundStyle(VoxiiTheme.muted)
-                        Text("If scheme is omitted, Voxii tries HTTPS first and then HTTP.")
+                        Text(appearance.t("server.note5"))
                             .foregroundStyle(VoxiiTheme.muted)
-                        Text("For production domains, HTTPS is recommended.")
+                        Text(appearance.t("server.note6"))
                             .foregroundStyle(VoxiiTheme.muted)
                     }
                     .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -143,7 +144,7 @@ struct ServerSettingsView: View {
             let normalized = try await session.testServerConnection(draftURL)
             draftURL = normalized
             connectionIsError = false
-            connectionMessage = "Connected successfully."
+            connectionMessage = appearance.t("server.connected")
             onApply(normalized)
             dismiss()
         } catch {
@@ -159,7 +160,7 @@ struct ServerSettingsView: View {
             let normalized = try await session.testServerConnection(draftURL)
             draftURL = normalized
             connectionIsError = false
-            connectionMessage = "Server is reachable."
+            connectionMessage = appearance.t("server.reachable")
         } catch {
             connectionIsError = true
             connectionMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

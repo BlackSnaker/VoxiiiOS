@@ -206,6 +206,27 @@ final class SessionStore: ObservableObject {
         )
     }
 
+    func sendVoiceMessageOverSocket(
+        to userID: Int,
+        text: String,
+        file: APIFileAttachment,
+        replyToId: Int? = nil,
+        isVoiceMessage: Bool = true
+    ) async throws -> DirectMessage {
+        let token = try requireToken()
+        let user = try requireCurrentUser()
+        return try await VoxiiSocketDMClient.shared.sendMessage(
+            serverURL: serverURL,
+            token: token,
+            currentUser: user,
+            receiverID: userID,
+            text: text,
+            file: file,
+            replyToId: replyToId,
+            isVoiceMessage: isVoiceMessage
+        )
+    }
+
     func updateMessage(messageID: Int, text: String) async throws -> DirectMessage {
         let token = try requireToken()
         return try await api.updateMessage(baseURL: serverURL, token: token, messageID: messageID, text: text)

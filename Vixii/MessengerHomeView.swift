@@ -2,6 +2,14 @@ import SwiftUI
 import Combine
 import WebKit
 
+private func voxiiPrefersRussianLanguage() -> Bool {
+    if let stored = UserDefaults.standard.string(forKey: "voxii_language")?.lowercased(), !stored.isEmpty {
+        return stored == "ru"
+    }
+    let preferred = Locale.preferredLanguages.first?.lowercased() ?? ""
+    return preferred.hasPrefix("ru")
+}
+
 struct MessengerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var session: SessionStore
@@ -252,7 +260,7 @@ struct MessengerHomeView: View {
 
     private func messageNotificationBody(for item: NotificationItem) -> String {
         let text = item.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return text.isEmpty ? "You have a new message" : text
+        return text.isEmpty ? appearance.t("push.newMessage") : text
     }
 }
 
@@ -283,12 +291,12 @@ private struct DMInboxView: View {
             .task {
                 await loadData()
             }
-            .alert("Error", isPresented: errorBinding) {
-                Button("OK", role: .cancel) {
+            .alert(appearance.t("common.error"), isPresented: errorBinding) {
+                Button(appearance.t("common.ok"), role: .cancel) {
                     errorMessage = nil
                 }
             } message: {
-                Text(errorMessage ?? "Unknown error")
+                Text(errorMessage ?? appearance.t("common.unknownError"))
             }
         }
     }
@@ -302,7 +310,7 @@ private struct DMInboxView: View {
             )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Direct Messages")
+                Text(appearance.t("dm.title"))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
                 Text("Voxii")
@@ -328,7 +336,7 @@ private struct DMInboxView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(VoxiiTheme.muted)
-            TextField("Find or start a conversation", text: $searchText)
+            TextField(appearance.t("dm.searchPlaceholder"), text: $searchText)
                 .foregroundStyle(VoxiiTheme.text)
         }
         .voxiiInput()
@@ -340,7 +348,7 @@ private struct DMInboxView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                         .tint(VoxiiTheme.accent)
-                    Text("Loading conversations...")
+                    Text(appearance.t("dm.loading"))
                         .foregroundStyle(VoxiiTheme.muted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -350,10 +358,10 @@ private struct DMInboxView: View {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(VoxiiTheme.muted)
-                    Text("No matching users")
+                    Text(appearance.t("dm.noMatches"))
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.text)
-                    Text("Try another search query.")
+                    Text(appearance.t("dm.tryAnotherSearch"))
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(VoxiiTheme.muted)
                 }
@@ -455,6 +463,8 @@ private struct DMInboxView: View {
 }
 
 private struct DMContactRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
     let user: APIUser
     let isFriend: Bool
     let unreadCount: Int
@@ -474,7 +484,7 @@ private struct DMContactRow: View {
                         .foregroundStyle(VoxiiTheme.text)
 
                     if isFriend {
-                        Text("Friend")
+                        Text(appearance.t("common.friend"))
                             .font(.system(size: 10, weight: .bold, design: .rounded))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -487,7 +497,7 @@ private struct DMContactRow: View {
                 }
 
                 HStack(spacing: 8) {
-                    Text(user.status ?? "Offline")
+                    Text(appearance.statusLabel(user.status))
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(user.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted)
 
@@ -562,12 +572,12 @@ private struct FriendsHubView: View {
             .task {
                 await loadData()
             }
-            .alert("Error", isPresented: errorBinding) {
-                Button("OK", role: .cancel) {
+            .alert(appearance.t("common.error"), isPresented: errorBinding) {
+                Button(appearance.t("common.ok"), role: .cancel) {
                     errorMessage = nil
                 }
             } message: {
-                Text(errorMessage ?? "Unknown error")
+                Text(errorMessage ?? appearance.t("common.unknownError"))
             }
         }
     }
@@ -584,10 +594,10 @@ private struct FriendsHubView: View {
                 )
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Friends")
+                Text(appearance.t("friends.title"))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
-                Text("Manage online, pending and new requests")
+                Text(appearance.t("friends.subtitle"))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.muted)
             }
@@ -607,9 +617,9 @@ private struct FriendsHubView: View {
     }
 
     private var picker: some View {
-        Picker("Friends", selection: $selectedTab) {
+        Picker(appearance.t("friends.segmentTitle"), selection: $selectedTab) {
             ForEach(FriendsTab.allCases) { tab in
-                Text(tab.rawValue).tag(tab)
+                Text(title(for: tab)).tag(tab)
             }
         }
         .pickerStyle(.segmented)
@@ -628,9 +638,9 @@ private struct FriendsHubView: View {
     private var bodyContent: some View {
         switch selectedTab {
         case .online:
-            friendsListView(items: friends.filter { ($0.status ?? "").lowercased() == "online" }, emptyText: "No friends online")
+            friendsListView(items: friends.filter { ($0.status ?? "").lowercased() == "online" }, emptyText: appearance.t("friends.noOnline"))
         case .all:
-            friendsListView(items: friends, emptyText: "No friends yet")
+            friendsListView(items: friends, emptyText: appearance.t("friends.noFriends"))
         case .pending:
             pendingListView
         case .add:
@@ -680,7 +690,7 @@ private struct FriendsHubView: View {
                     Image(systemName: "person.crop.circle.badge.questionmark")
                         .font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(VoxiiTheme.muted)
-                    Text("No pending requests")
+                    Text(appearance.t("friends.noPending"))
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.text)
                 }
@@ -701,19 +711,19 @@ private struct FriendsHubView: View {
                                     Text(user.username)
                                         .font(.system(size: 16, weight: .bold, design: .rounded))
                                         .foregroundStyle(VoxiiTheme.text)
-                                    Text(user.email ?? "No email")
+                                    Text(user.email ?? appearance.t("common.noEmail"))
                                         .font(.system(size: 12, weight: .medium, design: .rounded))
                                         .foregroundStyle(VoxiiTheme.muted)
                                 }
 
                                 Spacer()
 
-                                Button("Accept") {
+                                Button(appearance.t("common.accept")) {
                                     Task { await acceptRequest(user.id) }
                                 }
                                 .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
 
-                                Button("Reject") {
+                                Button(appearance.t("common.reject")) {
                                     Task { await rejectRequest(user.id) }
                                 }
                                 .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
@@ -735,7 +745,7 @@ private struct FriendsHubView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(VoxiiTheme.muted)
-                TextField("Search username", text: $addSearch)
+                TextField(appearance.t("friends.searchPlaceholder"), text: $addSearch)
                     .foregroundStyle(VoxiiTheme.text)
             }
             .voxiiInput()
@@ -745,7 +755,7 @@ private struct FriendsHubView: View {
                     Image(systemName: "person.badge.plus")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(VoxiiTheme.muted)
-                    Text("Type username to find users")
+                    Text(appearance.t("friends.searchHint"))
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.text)
                 }
@@ -767,7 +777,7 @@ private struct FriendsHubView: View {
                                         .font(.system(size: 16, weight: .bold, design: .rounded))
                                         .foregroundStyle(VoxiiTheme.text)
 
-                                    Text(user.email ?? "No email")
+                                    Text(user.email ?? appearance.t("common.noEmail"))
                                         .font(.system(size: 12, weight: .medium, design: .rounded))
                                         .foregroundStyle(VoxiiTheme.muted)
                                 }
@@ -775,11 +785,11 @@ private struct FriendsHubView: View {
                                 Spacer()
 
                                 if requestedIDs.contains(user.id) {
-                                    Text("Requested")
+                                    Text(appearance.t("common.requested"))
                                         .font(.system(size: 12, weight: .bold, design: .rounded))
                                         .foregroundStyle(VoxiiTheme.online)
                                 } else {
-                                    Button("Add") {
+                                    Button(appearance.t("common.add")) {
                                         Task { await sendRequest(user.id) }
                                     }
                                     .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
@@ -826,6 +836,19 @@ private struct FriendsHubView: View {
                 }
             }
         )
+    }
+
+    private func title(for tab: FriendsTab) -> String {
+        switch tab {
+        case .online:
+            return appearance.t("friends.tab.online")
+        case .all:
+            return appearance.t("friends.tab.all")
+        case .pending:
+            return appearance.t("friends.tab.pending")
+        case .add:
+            return appearance.t("friends.tab.add")
+        }
     }
 
     private func loadData() async {
@@ -890,6 +913,7 @@ private struct FriendsHubView: View {
 
 private struct FriendRow: View {
     @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var appearance: VoxiiAppearance
 
     let friend: FriendRequestUser
     let onRemove: () -> Void
@@ -907,7 +931,7 @@ private struct FriendRow: View {
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
 
-                Text(friend.status ?? "Offline")
+                Text(appearance.statusLabel(friend.status))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(friend.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted)
             }
@@ -971,12 +995,12 @@ private struct NewsChannelView: View {
                 }
                 Task { await refreshMessagesOnly() }
             }
-            .alert("Error", isPresented: errorBinding) {
-                Button("OK", role: .cancel) {
+            .alert(appearance.t("common.error"), isPresented: errorBinding) {
+                Button(appearance.t("common.ok"), role: .cancel) {
                     errorMessage = nil
                 }
             } message: {
-                Text(errorMessage ?? "Unknown error")
+                Text(errorMessage ?? appearance.t("common.unknownError"))
             }
         }
     }
@@ -993,7 +1017,7 @@ private struct NewsChannelView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(channel?.name ?? "News")
+                Text(channel?.name ?? appearance.t("news.title"))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
                 Text(channelSubtitle)
@@ -1024,7 +1048,7 @@ private struct NewsChannelView: View {
                             Image(systemName: "newspaper")
                                 .font(.system(size: 30, weight: .semibold))
                                 .foregroundStyle(VoxiiTheme.muted)
-                            Text("No news messages yet")
+                            Text(appearance.t("news.empty"))
                                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.text)
                         }
@@ -1065,7 +1089,7 @@ private struct NewsChannelView: View {
             Image(systemName: "lock.fill")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(VoxiiTheme.accentLight)
-            Text("News channel is read-only")
+            Text(appearance.t("news.readOnly"))
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(VoxiiTheme.muted)
             Spacer(minLength: 0)
@@ -1097,9 +1121,9 @@ private struct NewsChannelView: View {
 
     private var channelSubtitle: String {
         if let count = channel?.subscriberCount {
-            return "\(count) subscribers"
+            return appearance.tf("news.subscribers", count)
         }
-        return "System channel"
+        return appearance.t("news.systemChannel")
     }
 
     private var errorBinding: Binding<Bool> {
@@ -1157,7 +1181,7 @@ private struct NewsChannelView: View {
             return matched
         }
 
-        throw APIClientError.server("System channel not found.")
+        throw APIClientError.server(appearance.t("news.notFound"))
     }
 
     private func isSystemChannel(_ channel: ChannelModel) -> Bool {
@@ -1285,7 +1309,7 @@ private struct NewsChannelView: View {
                   let date = currentDate else {
                 return
             }
-            let title = "Версия \(version)"
+            let title = localizedVersionTitle(version)
             items.append(
                 StaticNewsItem(
                     id: String(autoID),
@@ -1329,6 +1353,13 @@ private struct NewsChannelView: View {
 
         commitCurrent()
         return items
+    }
+
+    private func localizedVersionTitle(_ version: String) -> String {
+        if voxiiPrefersRussianLanguage() {
+            return "Версия \(version)"
+        }
+        return "Version \(version)"
     }
 
     private func decodeStaticNewsFallback(from data: Data) -> [StaticNewsItem] {
@@ -1457,6 +1488,8 @@ private struct NewsChannelView: View {
 }
 
 private struct NewsMessageRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
     let message: ChannelMessage
     let isMine: Bool
 
@@ -1468,12 +1501,12 @@ private struct NewsMessageRow: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text(message.username ?? "Unknown")
+                    Text(message.username ?? appearance.t("common.unknown"))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(isMine ? Color.white.opacity(0.86) : VoxiiTheme.accentLight)
 
                     if message.edited {
-                        Text("(edited)")
+                        Text(appearance.t("news.edited"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(isMine ? Color.white.opacity(0.7) : VoxiiTheme.muted)
                     }
@@ -1487,10 +1520,10 @@ private struct NewsMessageRow: View {
 
                 if let reply = message.replyTo {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("↪ \(reply.author ?? "Unknown")")
+                        Text("↪ \(reply.author ?? appearance.t("common.unknown"))")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(isMine ? Color.white.opacity(0.86) : VoxiiTheme.accentLight)
-                        Text(reply.text ?? "[attachment]")
+                        Text(reply.text ?? appearance.t("news.attachmentPlaceholder"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(isMine ? Color.white.opacity(0.78) : VoxiiTheme.muted)
                             .lineLimit(1)
@@ -1527,13 +1560,15 @@ private struct NewsMessageRow: View {
 }
 
 private struct NewsStaticRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
     let news: StaticNewsItem
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
-                    Text("Система")
+                    Text(appearance.t("news.system"))
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                         .foregroundStyle(Color(hex: "#FFB54A") ?? VoxiiTheme.accentLight)
 
@@ -1632,7 +1667,7 @@ private struct StaticNewsItem: Decodable, Hashable, Identifiable {
         } else {
             let fallbackTitle = try container.decodeIfPresent(String.self, forKey: .title)
                 ?? container.decodeIfPresent(String.self, forKey: .headline)
-                ?? "news"
+                ?? Self.localizedNewsFallbackSlug()
             let fallbackDate = try Self.decodeDate(from: container)
             id = "\(fallbackTitle)-\(fallbackDate)"
         }
@@ -1656,7 +1691,7 @@ private struct StaticNewsItem: Decodable, Hashable, Identifiable {
         } else if let firstLineTitle = Self.extractTitle(from: decodedContent), !firstLineTitle.isEmpty {
             title = firstLineTitle
         } else {
-            title = "Update"
+            title = Self.localizedUpdateTitle()
         }
 
         changes = decodedChanges
@@ -1672,7 +1707,7 @@ private struct StaticNewsItem: Decodable, Hashable, Identifiable {
 
     var versionLabel: String {
         guard let version, !version.isEmpty else {
-            return "news"
+            return Self.localizedNewsFallbackSlug()
         }
         return "v\(version)"
     }
@@ -1712,6 +1747,14 @@ private struct StaticNewsItem: Decodable, Hashable, Identifiable {
             }
         }
         return nil
+    }
+
+    private static func localizedNewsFallbackSlug() -> String {
+        voxiiPrefersRussianLanguage() ? "новости" : "news"
+    }
+
+    private static func localizedUpdateTitle() -> String {
+        voxiiPrefersRussianLanguage() ? "Обновление" : "Update"
     }
 
     private static func extractChanges(from content: String) -> [String] {
@@ -1815,12 +1858,12 @@ private struct NotificationsCenterView: View {
                 }
                 Task { await refreshSilently() }
             }
-            .alert("Error", isPresented: errorBinding) {
-                Button("OK", role: .cancel) {
+            .alert(appearance.t("common.error"), isPresented: errorBinding) {
+                Button(appearance.t("common.ok"), role: .cancel) {
                     errorMessage = nil
                 }
             } message: {
-                Text(errorMessage ?? "Unknown error")
+                Text(errorMessage ?? appearance.t("common.unknownError"))
             }
         }
     }
@@ -1837,23 +1880,23 @@ private struct NotificationsCenterView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Notifications")
+                Text(appearance.t("notifications.title"))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
-                Text(unreadCount > 0 ? "\(unreadCount) unread" : "All caught up")
+                Text(unreadCount > 0 ? appearance.tf("notifications.unreadCount", unreadCount) : appearance.t("notifications.allCaughtUp"))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.muted)
             }
 
             Spacer()
 
-            Button("Read all") {
+            Button(appearance.t("notifications.readAll")) {
                 Task { await markAllRead() }
             }
             .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
             .disabled(notifications.isEmpty || unreadCount == 0)
 
-            Button("Clear") {
+            Button(appearance.t("common.clear")) {
                 Task { await clearAll() }
             }
             .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
@@ -1868,7 +1911,7 @@ private struct NotificationsCenterView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                         .tint(VoxiiTheme.accent)
-                    Text("Loading notifications...")
+                    Text(appearance.t("notifications.loading"))
                         .foregroundStyle(VoxiiTheme.muted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1878,7 +1921,7 @@ private struct NotificationsCenterView: View {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 30, weight: .semibold))
                         .foregroundStyle(VoxiiTheme.muted)
-                    Text("No notifications")
+                    Text(appearance.t("notifications.empty"))
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.text)
                 }
@@ -2017,6 +2060,8 @@ private struct NotificationsCenterView: View {
 }
 
 private struct NotificationRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
     let item: NotificationItem
     let onMarkSourceRead: () -> Void
     let onDelete: () -> Void
@@ -2055,13 +2100,13 @@ private struct NotificationRow: View {
 
                 HStack(spacing: 8) {
                     if !item.read && item.fromUserId != nil {
-                        Button("Mark read") {
+                        Button(appearance.t("notifications.markRead")) {
                             onMarkSourceRead()
                         }
                         .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
                     }
 
-                    Button("Delete") {
+                    Button(appearance.t("common.delete")) {
                         onDelete()
                     }
                     .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
@@ -2094,9 +2139,9 @@ private struct NotificationRow: View {
     private var title: String {
         switch item.type {
         case "message":
-            return item.fromUsername ?? "Unknown"
+            return item.fromUsername ?? appearance.t("common.unknown")
         case "missed-call":
-            return item.fromUsername ?? "Unknown"
+            return item.fromUsername ?? appearance.t("common.unknown")
         default:
             return item.type.capitalized
         }
@@ -2107,8 +2152,9 @@ private struct NotificationRow: View {
         case "message":
             return item.content
         case "missed-call":
-            let callKind = (item.callType ?? "voice") == "video" ? "video" : "voice"
-            return "Missed \(callKind) call"
+            return (item.callType ?? "voice") == "video"
+                ? appearance.t("notifications.missedVideo")
+                : appearance.t("notifications.missedVoice")
         default:
             return item.content
         }
@@ -2405,10 +2451,10 @@ private struct SettingsHomeView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(session.currentUser?.username ?? "Unknown")
+                    Text(session.currentUser?.username ?? appearance.t("common.unknown"))
                         .font(.system(size: 21, weight: .bold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.text)
-                    Text(session.currentUser?.email ?? "No email")
+                    Text(session.currentUser?.email ?? appearance.t("common.noEmail"))
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(VoxiiTheme.muted)
                         .lineLimit(1)
@@ -2416,7 +2462,7 @@ private struct SettingsHomeView: View {
 
                 Spacer()
 
-                Text("Online")
+                Text(appearance.t("common.online"))
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
@@ -2428,7 +2474,7 @@ private struct SettingsHomeView: View {
             }
 
             HStack(spacing: 8) {
-                settingsBadge(text: "ID: \(session.currentUser?.id ?? 0)", symbol: "number")
+                settingsBadge(text: "\(appearance.t("common.id")): \(session.currentUser?.id ?? 0)", symbol: "number")
                 settingsBadge(text: appearance.themeLabel(appearance.theme), symbol: "sparkles")
             }
         }
@@ -2692,7 +2738,7 @@ private struct IncomingCallListenerContainer: UIViewRepresentable {
             let callerSocketId = payload["callerSocketId"] as? String
 
             let callerId = parseInt(payload["callerId"])
-            let callerUsername = payload["callerUsername"] as? String ?? "Unknown"
+            let callerUsername = payload["callerUsername"] as? String ?? localizedUnknownLabel()
             let callerAvatar = payload["callerAvatar"] as? String
             let callType = payload["callType"] as? String ?? "video"
             let eventId = payload["eventId"] as? String ?? UUID().uuidString
@@ -2713,6 +2759,10 @@ private struct IncomingCallListenerContainer: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { }
+
+        private func localizedUnknownLabel() -> String {
+            voxiiPrefersRussianLanguage() ? "Неизвестно" : "Unknown"
+        }
 
         func buildHTML() -> String {
             struct Bootstrap: Encodable {

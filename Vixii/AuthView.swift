@@ -10,11 +10,18 @@ struct AuthView: View {
     @State private var isSettingsPresented = false
     @State private var serverURLDraft = ""
 
-    private enum Mode: String, CaseIterable, Identifiable {
-        case login = "Login"
-        case register = "Register"
+    private enum Mode: CaseIterable, Identifiable {
+        case login
+        case register
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .login:
+                return "login"
+            case .register:
+                return "register"
+            }
+        }
     }
 
     var body: some View {
@@ -37,11 +44,11 @@ struct AuthView: View {
                             }
                             .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 7)
 
-                            Text(mode == .login ? "Welcome Back" : "Create Account")
+                            Text(mode == .login ? appearance.t("auth.welcomeBack") : appearance.t("auth.createAccount"))
                                 .font(.system(size: 26, weight: .bold, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.text)
 
-                            Text(mode == .login ? "Login to your Voxii messenger." : "Join Voxii and start chatting.")
+                            Text(mode == .login ? appearance.t("auth.loginSubtitle") : appearance.t("auth.registerSubtitle"))
                                 .font(.system(size: 14, weight: .medium, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.muted)
                         }
@@ -54,7 +61,7 @@ struct AuthView: View {
                                         mode = item
                                     }
                                 } label: {
-                                    Text(item.rawValue)
+                                    Text(item == .login ? appearance.t("auth.mode.login") : appearance.t("auth.mode.register"))
                                         .font(.system(size: 14, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
                                         .frame(maxWidth: .infinity)
@@ -82,11 +89,11 @@ struct AuthView: View {
 
                         if mode == .register {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("USERNAME")
+                                Text(appearance.t("auth.usernameLabel"))
                                     .font(.system(size: 11, weight: .bold, design: .rounded))
                                     .foregroundStyle(VoxiiTheme.mutedSecondary)
 
-                                TextField("Enter username", text: $username)
+                                TextField(appearance.t("auth.usernamePlaceholder"), text: $username)
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                                     .voxiiInput()
@@ -94,7 +101,7 @@ struct AuthView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("EMAIL")
+                            Text(appearance.t("auth.emailLabel"))
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.mutedSecondary)
 
@@ -106,11 +113,11 @@ struct AuthView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("PASSWORD")
+                            Text(appearance.t("auth.passwordLabel"))
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.mutedSecondary)
 
-                            SecureField("At least 6 characters", text: $password)
+                            SecureField(appearance.t("auth.passwordPlaceholder"), text: $password)
                                 .voxiiInput()
                         }
 
@@ -122,7 +129,7 @@ struct AuthView: View {
                                     ProgressView()
                                         .tint(.white)
                                 } else {
-                                    Text(mode == .login ? "Log In" : "Create Account")
+                                    Text(mode == .login ? appearance.t("auth.submit.login") : appearance.t("auth.submit.register"))
                                 }
                             }
                             .frame(maxWidth: .infinity)
@@ -132,7 +139,7 @@ struct AuthView: View {
                         .disabled(session.isBusy || !canSubmit)
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("SERVER")
+                            Text(appearance.t("auth.serverLabel"))
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(VoxiiTheme.mutedSecondary)
 
@@ -148,7 +155,7 @@ struct AuthView: View {
 
                                 Spacer()
 
-                                Button("Change") {
+                                Button(appearance.t("common.change")) {
                                     serverURLDraft = session.serverURL
                                     isSettingsPresented = true
                                 }
