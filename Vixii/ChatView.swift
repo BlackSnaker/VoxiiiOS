@@ -1241,10 +1241,7 @@ private struct MessageBubbleView: View {
                 }
 
                 if !visibleMessageContent.isEmpty {
-                    Text(visibleMessageContent)
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .lineSpacing(2)
-                        .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
+                    messageTextBlock(visibleMessageContent)
                 }
 
                 if let file = message.file {
@@ -1464,8 +1461,8 @@ private struct MessageBubbleView: View {
                 systemImage: "arrowshape.turn.up.left.fill",
                 accessibilityLabel: appearance.t("common.reply"),
                 tint: isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight,
-                backgroundTint: isOutgoing ? Color.white.opacity(0.14) : Color.white.opacity(0.08),
-                strokeTint: Color.white.opacity(isOutgoing ? 0.18 : 0.1),
+                backgroundTint: isOutgoing ? Color.white.opacity(0.1) : Color.white.opacity(0.05),
+                strokeTint: Color.white.opacity(isOutgoing ? 0.14 : 0.08),
                 action: onReply
             )
 
@@ -1474,8 +1471,8 @@ private struct MessageBubbleView: View {
                     systemImage: "square.and.pencil",
                     accessibilityLabel: appearance.t("common.edit"),
                     tint: Color.white.opacity(0.94),
-                    backgroundTint: Color.white.opacity(0.14),
-                    strokeTint: Color.white.opacity(0.18),
+                    backgroundTint: Color.white.opacity(0.1),
+                    strokeTint: Color.white.opacity(0.14),
                     action: onEdit
                 )
 
@@ -1494,13 +1491,13 @@ private struct MessageBubbleView: View {
         .padding(.vertical, 6)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(isOutgoing ? 0.09 : 0.05))
+                .fill(Color.white.opacity(isOutgoing ? 0.06 : 0.035))
         )
         .overlay(
             Capsule(style: .continuous)
-                .stroke(Color.white.opacity(isOutgoing ? 0.12 : 0.08), lineWidth: 0.8)
+                .stroke(Color.white.opacity(isOutgoing ? 0.1 : 0.06), lineWidth: 0.8)
         )
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func actionIconButton(
@@ -1603,7 +1600,11 @@ private struct MessageBubbleView: View {
     private var bubbleBackground: some View {
         ZStack {
             bubbleShape
-                .fill(isOutgoing ? AnyShapeStyle(Color.white.opacity(0.02)) : AnyShapeStyle(.ultraThinMaterial))
+                .fill(
+                    isOutgoing
+                    ? AnyShapeStyle(Color.black.opacity(0.08))
+                    : AnyShapeStyle(Color.black.opacity(0.18))
+                )
 
             bubbleShape
                 .fill(bubbleFillStyle)
@@ -1615,9 +1616,9 @@ private struct MessageBubbleView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(isOutgoing ? 0.08 : 0.06),
+                            Color.white.opacity(isOutgoing ? 0.025 : 0.015),
                             .clear,
-                            Color.black.opacity(0.04)
+                            Color.black.opacity(isOutgoing ? 0.12 : 0.18)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -1635,10 +1636,10 @@ private struct MessageBubbleView: View {
             return AnyShapeStyle(
                 LinearGradient(
                     colors: [
-                        VoxiiTheme.accentLight.opacity(0.88),
-                        VoxiiTheme.accent.opacity(0.96),
-                        VoxiiTheme.accentBlue.opacity(0.9),
-                        VoxiiTheme.accent.opacity(0.92)
+                        VoxiiTheme.accentLight.opacity(0.44),
+                        VoxiiTheme.accent.opacity(0.68),
+                        VoxiiTheme.accentBlue.opacity(0.6),
+                        VoxiiTheme.accent.opacity(0.64)
                     ],
                     startPoint: .topTrailing,
                     endPoint: .bottomTrailing
@@ -1649,10 +1650,10 @@ private struct MessageBubbleView: View {
         return AnyShapeStyle(
             LinearGradient(
                 colors: [
-                    Color.white.opacity(0.08),
-                    VoxiiTheme.glassStrong.opacity(0.84),
-                    VoxiiTheme.glass.opacity(0.68),
-                    VoxiiTheme.glassSoft.opacity(0.78)
+                    Color.black.opacity(0.08),
+                    VoxiiTheme.glassStrong.opacity(0.96),
+                    VoxiiTheme.glass.opacity(0.86),
+                    Color.black.opacity(0.28)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -1663,7 +1664,7 @@ private struct MessageBubbleView: View {
     private var bubbleAccentWash: RadialGradient {
         RadialGradient(
             colors: [
-                isOutgoing ? Color.white.opacity(0.18) : VoxiiTheme.accentBlue.opacity(0.1),
+                isOutgoing ? Color.white.opacity(0.055) : VoxiiTheme.accentBlue.opacity(0.025),
                 .clear
             ],
             center: isOutgoing ? .topTrailing : .topLeading,
@@ -1675,8 +1676,8 @@ private struct MessageBubbleView: View {
     private var bubbleGlossStyle: LinearGradient {
         LinearGradient(
             colors: [
-                Color.white.opacity(isOutgoing ? 0.24 : 0.14),
-                Color.white.opacity(isOutgoing ? 0.11 : 0.05),
+                Color.white.opacity(isOutgoing ? 0.09 : 0.04),
+                Color.white.opacity(isOutgoing ? 0.03 : 0.01),
                 .clear
             ],
             startPoint: .topLeading,
@@ -1687,8 +1688,8 @@ private struct MessageBubbleView: View {
     private var bubbleStrokeStyle: LinearGradient {
         LinearGradient(
             colors: [
-                Color.white.opacity(isOutgoing ? 0.28 : 0.18),
-                Color.white.opacity(isOutgoing ? 0.12 : 0.05)
+                Color.white.opacity(isOutgoing ? 0.12 : 0.08),
+                Color.white.opacity(isOutgoing ? 0.05 : 0.025)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -1701,20 +1702,84 @@ private struct MessageBubbleView: View {
 
     private func inlinePanelBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(isOutgoing ? 0.18 : 0.09),
-                        (isOutgoing ? VoxiiTheme.accentLight.opacity(0.12) : VoxiiTheme.accent.opacity(0.08)),
-                        Color.black.opacity(0.04)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+            .fill(Color.black.opacity(isOutgoing ? 0.12 : 0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isOutgoing ? 0.05 : 0.025),
+                                (isOutgoing ? VoxiiTheme.accentLight.opacity(0.045) : VoxiiTheme.accent.opacity(0.025)),
+                                Color.black.opacity(0.14)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(isOutgoing ? 0.26 : 0.12), lineWidth: 0.8)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.04), Color.white.opacity(0.01), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .blendMode(.screen)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.1 : 0.06), lineWidth: 0.8)
+            )
+    }
+
+    private func messageTextBlock(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .lineSpacing(2.5)
+            .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
+            .textSelection(.enabled)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(textPanelBackground(cornerRadius: 16))
+    }
+
+    private func textPanelBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(
+                isOutgoing
+                ? AnyShapeStyle(Color.black.opacity(0.12))
+                : AnyShapeStyle(Color.black.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isOutgoing ? 0.04 : 0.02),
+                                (isOutgoing ? VoxiiTheme.accentLight.opacity(0.04) : VoxiiTheme.accent.opacity(0.02)),
+                                Color.black.opacity(0.14)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.04), Color.white.opacity(0.01), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .blendMode(.screen)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.08 : 0.05), lineWidth: 0.8)
             )
     }
 
@@ -1733,11 +1798,11 @@ private struct MessageBubbleView: View {
         .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
-                .fill(Color.white.opacity(0.08))
+                .fill(Color.black.opacity(0.18))
         )
         .overlay(
             Capsule(style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 0.8)
+                .stroke(Color.white.opacity(0.06), lineWidth: 0.8)
         )
     }
 
@@ -1748,11 +1813,11 @@ private struct MessageBubbleView: View {
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
+                    .fill(Color.black.opacity(isOutgoing ? 0.14 : 0.18))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(isOutgoing ? 0.16 : 0.08), lineWidth: 0.8)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.08 : 0.05), lineWidth: 0.8)
             )
             .foregroundStyle(isOutgoing ? Color.white.opacity(0.8) : VoxiiTheme.muted)
     }
@@ -2581,40 +2646,27 @@ struct VideoCallView: View {
     @StateObject private var controller = VideoCallController()
     @State private var isAcceptingIncoming = false
     @State private var didAutoAcceptIncoming = false
+    
+    private var isAudioOnlyCall: Bool {
+        config.callType.lowercased() == "audio"
+    }
 
     var body: some View {
         ZStack {
-            VoxiiBackground()
-
-            VideoCallWebContainer(config: config, controller: controller)
-                .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(VoxiiTheme.stroke, lineWidth: 1)
-                )
-                .padding(.horizontal, 14)
-                .padding(.top, 68)
-                .padding(.bottom, 148)
-
-            if !controller.hasRemoteVideo && controller.state != .ended {
-                VStack(spacing: 10) {
-                    Image(systemName: "video.slash.fill")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundStyle(VoxiiTheme.muted)
-                    Text(placeholderText)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(VoxiiTheme.muted)
-                }
-                .padding(.top, 34)
-            }
+            callBackground
+            callStage
 
             VStack(spacing: 0) {
                 topBar
                 Spacer()
-                controlsBar
+                VStack(spacing: 12) {
+                    statusBanner
+                    controlsBar
+                }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 18)
 
             if controller.state == .incoming {
                 incomingOverlay
@@ -2662,6 +2714,81 @@ struct VideoCallView: View {
         }
     }
 
+    private var callBackground: some View {
+        ZStack {
+            VoxiiBackground()
+
+            LinearGradient(
+                colors: [
+                    Color.black.opacity(0.18),
+                    .clear,
+                    Color.black.opacity(0.28)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    VoxiiTheme.accentBlue.opacity(0.18),
+                    .clear
+                ],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 320
+            )
+            .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    VoxiiTheme.accent.opacity(0.14),
+                    .clear
+                ],
+                center: .bottomLeading,
+                startRadius: 10,
+                endRadius: 280
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private var callStage: some View {
+        ZStack {
+            VideoCallWebContainer(config: config, controller: controller)
+                .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 34, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.08),
+                                    .clear,
+                                    Color.black.opacity(0.12)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .blendMode(.screen)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 34, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.3), radius: 24, x: 0, y: 18)
+
+            if !controller.hasRemoteVideo && controller.state != .ended {
+                callPlaceholderOverlay
+                    .padding(.horizontal, 26)
+                    .allowsHitTesting(false)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 84)
+        .padding(.bottom, 184)
+    }
+
     private var topBar: some View {
         HStack(spacing: 10) {
             Button {
@@ -2671,133 +2798,153 @@ struct VideoCallView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 15, weight: .bold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
-
-            VoxiiAvatarView(
-                text: config.peer.avatar ?? config.peer.username,
-                isOnline: true,
-                size: 34
-            )
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(config.peer.username)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.text)
-                Text(controller.statusText)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.muted)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Text(appearance.t("call.video"))
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(VoxiiTheme.accentGradient)
-                )
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(VoxiiTheme.glassStrong)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
-        )
-    }
-
-    private var controlsBar: some View {
-        HStack(spacing: 16) {
-            callButton(
-                icon: controller.isAudioEnabled ? "mic.fill" : "mic.slash.fill",
-                active: controller.isAudioEnabled,
-                action: { controller.toggleAudio() }
-            )
-
-            callButton(
-                icon: controller.isVideoEnabled ? "video.fill" : "video.slash.fill",
-                active: controller.isVideoEnabled,
-                action: { controller.toggleVideo() }
-            )
-
-            Button {
-                controller.endCall()
-            } label: {
-                Image(systemName: "phone.down.fill")
-                    .font(.system(size: 20, weight: .bold))
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(
                 VoxiiRoundButtonStyle(
-                    diameter: 68,
-                    variant: .danger,
-                    foregroundColor: .white
+                    diameter: 44,
+                    variant: .neutral
                 )
             )
+
+            HStack(spacing: 12) {
+                VoxiiAvatarView(
+                    text: config.peer.avatar ?? config.peer.username,
+                    isOnline: controller.state == .connected || controller.state == .calling
+                        || controller.state == .incoming
+                        || controller.state == .connecting,
+                    size: 42
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(config.peer.username)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                        .lineLimit(1)
+                    Text(controller.statusText)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.muted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(callPanelBackground(cornerRadius: 24, accentOpacity: 0.12))
+            .layoutPriority(1)
+
+            Spacer()
+
+            callTypeChip
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+    }
+
+    private var controlsBar: some View {
+        HStack(alignment: .top, spacing: 18) {
+            callControl(
+                icon: controller.isAudioEnabled ? "mic.fill" : "mic.slash.fill",
+                title: appearance.t("call.controlMic"),
+                active: controller.isAudioEnabled,
+                variant: controller.isAudioEnabled ? .accent : .neutral,
+                diameter: 58,
+                foregroundColor: controller.isAudioEnabled ? .white : nil,
+                action: { controller.toggleAudio() }
+            )
+
+            callControl(
+                icon: controller.isVideoEnabled ? "video.fill" : "video.slash.fill",
+                title: appearance.t("call.controlCamera"),
+                active: controller.isVideoEnabled,
+                variant: controller.isVideoEnabled ? .accent : .neutral,
+                diameter: 58,
+                foregroundColor: controller.isVideoEnabled ? .white : nil,
+                action: { controller.toggleVideo() }
+            )
+
+            callControl(
+                icon: "phone.down.fill",
+                title: appearance.t("call.controlEnd"),
+                active: true,
+                variant: .danger,
+                diameter: 72,
+                foregroundColor: .white,
+                action: { controller.endCall() }
+            )
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 18)
+        .padding(.bottom, 12)
         .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(VoxiiTheme.glassStrong)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
+            callPanelBackground(cornerRadius: 30, accentOpacity: 0.14)
         )
         .shadow(color: .black.opacity(0.35), radius: 14, x: 0, y: 8)
     }
 
     private var incomingOverlay: some View {
-        VStack(spacing: 14) {
-            Text(appearance.t("call.incomingVideo"))
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(VoxiiTheme.text)
+        ZStack {
+            Color.black.opacity(0.28)
+                .ignoresSafeArea()
 
-            Text(controller.incomingCallerName ?? config.peer.username)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(VoxiiTheme.muted)
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle()
+                        .fill(VoxiiTheme.accentGradient.opacity(0.28))
+                        .frame(width: 116, height: 116)
+                        .blur(radius: 18)
 
-            HStack(spacing: 14) {
-                Button(appearance.t("call.decline")) {
-                    VoxiiRingtonePlayer.shared.stopIfNeeded()
-                    controller.rejectIncoming()
+                    VoxiiAvatarView(
+                        text: config.peer.avatar ?? currentCallerName,
+                        isOnline: true,
+                        size: 88
+                    )
                 }
-                .buttonStyle(VoxiiGradientButtonStyle(variant: .danger))
 
-                Button {
-                    Task { await acceptIncomingWithPermissions() }
-                } label: {
-                    if isAcceptingIncoming {
-                        ProgressView()
-                            .tint(.white)
-                            .frame(minWidth: 76, minHeight: 20)
-                    } else {
-                        Text(appearance.t("call.accept"))
+                VStack(spacing: 6) {
+                    Text(incomingTitle)
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+
+                    Text(currentCallerName)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.muted)
+                }
+
+                callTypeChip
+
+                HStack(spacing: 14) {
+                    Button {
+                        VoxiiRingtonePlayer.shared.stopIfNeeded()
+                        controller.rejectIncoming()
+                    } label: {
+                        Label(appearance.t("call.decline"), systemImage: "phone.down.fill")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(VoxiiGradientButtonStyle(variant: .danger))
+
+                    Button {
+                        Task { await acceptIncomingWithPermissions() }
+                    } label: {
+                        if isAcceptingIncoming {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(maxWidth: .infinity, minHeight: 20)
+                        } else {
+                            Label(appearance.t("call.accept"), systemImage: "phone.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(VoxiiGradientButtonStyle())
+                    .disabled(isAcceptingIncoming)
                 }
-                .buttonStyle(VoxiiGradientButtonStyle())
-                .disabled(isAcceptingIncoming)
             }
+            .padding(28)
+            .background(
+                callPanelBackground(cornerRadius: 32, accentOpacity: 0.18)
+            )
+            .shadow(color: .black.opacity(0.34), radius: 26, x: 0, y: 16)
+            .padding(.horizontal, 24)
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(VoxiiTheme.glassStrong)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
-        )
-        .padding(.horizontal, 28)
     }
 
     private var placeholderText: String {
@@ -2815,18 +2962,208 @@ struct VideoCallView: View {
         }
     }
 
-    private func callButton(icon: String, active: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .bold))
+    private var currentCallerName: String {
+        controller.incomingCallerName ?? config.peer.username
+    }
+
+    private var incomingTitle: String {
+        appearance.t(isAudioOnlyCall ? "call.incomingAudio" : "call.incomingVideo")
+    }
+
+    private var callTypeTitle: String {
+        appearance.t(isAudioOnlyCall ? "call.audio" : "call.video")
+    }
+
+    private var callTypeIcon: String {
+        isAudioOnlyCall ? "waveform" : "video.fill"
+    }
+
+    private var statusBanner: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(statusAccentColor)
+                .frame(width: 10, height: 10)
+                .shadow(color: statusAccentColor.opacity(0.36), radius: 6, x: 0, y: 0)
+
+            Text(controller.statusText)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Image(systemName: callTypeIcon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(VoxiiTheme.muted)
         }
-        .buttonStyle(
-            VoxiiRoundButtonStyle(
-                diameter: 54,
-                variant: active ? .accent : .neutral,
-                foregroundColor: .white
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(callPanelBackground(cornerRadius: 20, accentOpacity: 0.08))
+    }
+
+    private var callPlaceholderOverlay: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(VoxiiTheme.accentGradient.opacity(0.22))
+                    .frame(width: 118, height: 118)
+                    .blur(radius: 20)
+
+                VoxiiAvatarView(
+                    text: config.peer.avatar ?? currentCallerName,
+                    isOnline: controller.state != .ended,
+                    size: 88
+                )
+            }
+
+            VStack(spacing: 6) {
+                Text(currentCallerName)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+
+                Text(placeholderText)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: callTypeIcon)
+                    .font(.system(size: 12, weight: .bold))
+                Text(callTypeTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(VoxiiTheme.text.opacity(0.9))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(callPanelBackground(cornerRadius: 18, accentOpacity: 0.06))
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .background(callPanelBackground(cornerRadius: 32, accentOpacity: 0.16))
+        .shadow(color: .black.opacity(0.28), radius: 24, x: 0, y: 16)
+    }
+
+    private var callTypeChip: some View {
+        HStack(spacing: 7) {
+            Image(systemName: callTypeIcon)
+                .font(.system(size: 12, weight: .bold))
+            Text(callTypeTitle)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(callPanelBackground(cornerRadius: 20, accentOpacity: 0.16))
+    }
+
+    private func callControl(
+        icon: String,
+        title: String,
+        active: Bool,
+        variant: VoxiiButtonVariant,
+        diameter: CGFloat,
+        foregroundColor: Color?,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 8) {
+            Button(action: action) {
+                Image(systemName: icon)
+                    .font(.system(size: diameter >= 70 ? 20 : 18, weight: .bold))
+            }
+            .buttonStyle(
+                VoxiiRoundButtonStyle(
+                    diameter: diameter,
+                    variant: variant,
+                    foregroundColor: foregroundColor
+                )
             )
-        )
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(active ? VoxiiTheme.text : VoxiiTheme.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func callPanelBackground(cornerRadius: CGFloat, accentOpacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.black.opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.82)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.12),
+                                VoxiiTheme.glassStrong.opacity(0.8),
+                                Color.black.opacity(0.22)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                VoxiiTheme.accentBlue.opacity(accentOpacity),
+                                .clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 8,
+                            endRadius: 220
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.16),
+                                Color.white.opacity(0.04),
+                                .clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .blendMode(.screen)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.16), lineWidth: 0.6)
+                    .padding(1)
+            )
+    }
+
+    private var statusAccentColor: Color {
+        switch controller.state {
+        case .connecting:
+            return VoxiiTheme.accentBlue
+        case .calling:
+            return VoxiiTheme.accent
+        case .incoming:
+            return Color(hex: "#F59E0B") ?? .orange
+        case .connected:
+            return VoxiiTheme.online
+        case .ended:
+            return VoxiiTheme.danger
+        }
     }
 
     private func acceptIncomingWithPermissions() async {

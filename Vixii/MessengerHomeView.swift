@@ -561,12 +561,12 @@ private struct FriendsHubView: View {
             ZStack {
                 VoxiiBackground()
 
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     header
                     picker
                     bodyContent
                 }
-                .padding(14)
+                .padding(16)
             }
             .toolbar(.hidden, for: .navigationBar)
             .task {
@@ -583,23 +583,45 @@ private struct FriendsHubView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "person.2.fill")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color.black.opacity(0.18))
+                .frame(width: 48, height: 48)
+                .overlay(
                     Circle()
-                        .fill(VoxiiTheme.accentGradient)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(VoxiiTheme.accentLight)
                 )
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(appearance.t("friends.title"))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.system(size: 23, weight: .bold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.text)
                 Text(appearance.t("friends.subtitle"))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(VoxiiTheme.muted)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    compactHeaderMetric(
+                        systemImage: "bolt.horizontal.fill",
+                        title: title(for: .online),
+                        value: friends.filter { ($0.status ?? "").lowercased() == "online" }.count,
+                        accent: VoxiiTheme.online
+                    )
+
+                    compactHeaderMetric(
+                        systemImage: "bell.badge.fill",
+                        title: appearance.t("tab.notifications"),
+                        value: pendingRequests.count,
+                        accent: Color(hex: "#F59E0B") ?? .orange
+                    )
+                }
+                .padding(.top, 6)
             }
 
             Spacer()
@@ -608,12 +630,47 @@ private struct FriendsHubView: View {
                 Task { await loadData() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 16, weight: .bold))
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+            .buttonStyle(
+                VoxiiRoundButtonStyle(
+                    diameter: 44,
+                    variant: .neutral
+                )
+            )
             .disabled(isLoading)
         }
-        .voxiiCard(cornerRadius: 18, padding: 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.08))
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 8)
+    }
+
+    private func compactHeaderMetric(systemImage: String, title: String, value: Int, accent: Color) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(accent)
+
+            Text("\(value)")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.muted)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.15))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+        )
     }
 
     private var picker: some View {
@@ -623,15 +680,11 @@ private struct FriendsHubView: View {
             }
         }
         .pickerStyle(.segmented)
-        .padding(8)
+        .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(VoxiiTheme.glass)
+            FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.08)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(VoxiiTheme.stroke, lineWidth: 1)
-        )
+        .shadow(color: .black.opacity(0.16), radius: 10, x: 0, y: 6)
     }
 
     @ViewBuilder
@@ -651,19 +704,13 @@ private struct FriendsHubView: View {
     private func friendsListView(items: [FriendRequestUser], emptyText: String) -> some View {
         Group {
             if items.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "person.2.slash")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(VoxiiTheme.muted)
-                    Text(emptyText)
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(VoxiiTheme.text)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .voxiiCard(cornerRadius: 16, padding: 18)
+                FriendsEmptyState(
+                    systemImage: "person.2.slash",
+                    title: emptyText
+                )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 14) {
                         ForEach(items) { friend in
                             FriendRow(
                                 friend: friend,
@@ -674,7 +721,9 @@ private struct FriendsHubView: View {
                             .environmentObject(session)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
+                .scrollIndicators(.hidden)
                 .refreshable {
                     await loadData()
                 }
@@ -686,52 +735,24 @@ private struct FriendsHubView: View {
     private var pendingListView: some View {
         Group {
             if pendingRequests.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "person.crop.circle.badge.questionmark")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(VoxiiTheme.muted)
-                    Text(appearance.t("friends.noPending"))
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundStyle(VoxiiTheme.text)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .voxiiCard(cornerRadius: 16, padding: 18)
+                FriendsEmptyState(
+                    systemImage: "person.crop.circle.badge.questionmark",
+                    title: appearance.t("friends.noPending")
+                )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 14) {
                         ForEach(pendingRequests) { user in
-                            HStack(spacing: 12) {
-                                VoxiiAvatarView(
-                                    text: user.avatar ?? user.username,
-                                    isOnline: user.status?.lowercased() == "online",
-                                    size: 42
-                                )
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(user.username)
-                                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                                        .foregroundStyle(VoxiiTheme.text)
-                                    Text(user.email ?? appearance.t("common.noEmail"))
-                                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                                        .foregroundStyle(VoxiiTheme.muted)
-                                }
-
-                                Spacer()
-
-                                Button(appearance.t("common.accept")) {
-                                    Task { await acceptRequest(user.id) }
-                                }
-                                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
-
-                                Button(appearance.t("common.reject")) {
-                                    Task { await rejectRequest(user.id) }
-                                }
-                                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
-                            }
-                            .voxiiCard(cornerRadius: 14, padding: 12)
+                            PendingRequestRow(
+                                user: user,
+                                onAccept: { Task { await acceptRequest(user.id) } },
+                                onReject: { Task { await rejectRequest(user.id) } }
+                            )
                         }
                     }
+                    .padding(.vertical, 4)
                 }
+                .scrollIndicators(.hidden)
                 .refreshable {
                     await loadData()
                 }
@@ -747,58 +768,40 @@ private struct FriendsHubView: View {
                     .foregroundStyle(VoxiiTheme.muted)
                 TextField(appearance.t("friends.searchPlaceholder"), text: $addSearch)
                     .foregroundStyle(VoxiiTheme.text)
-            }
-            .voxiiInput()
-
-            if addCandidates.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(VoxiiTheme.muted)
-                    Text(appearance.t("friends.searchHint"))
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(VoxiiTheme.text)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .voxiiCard(cornerRadius: 16, padding: 18)
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(addCandidates) { user in
-                            HStack(spacing: 12) {
-                                VoxiiAvatarView(
-                                    text: user.avatar ?? user.username,
-                                    isOnline: user.status?.lowercased() == "online",
-                                    size: 42
-                                )
-
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(user.username)
-                                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                                        .foregroundStyle(VoxiiTheme.text)
-
-                                    Text(user.email ?? appearance.t("common.noEmail"))
-                                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                                        .foregroundStyle(VoxiiTheme.muted)
-                                }
-
-                                Spacer()
-
-                                if requestedIDs.contains(user.id) {
-                                    Text(appearance.t("common.requested"))
-                                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                                        .foregroundStyle(VoxiiTheme.online)
-                                } else {
-                                    Button(appearance.t("common.add")) {
-                                        Task { await sendRequest(user.id) }
-                                    }
-                                    .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
-                                }
-                            }
-                            .voxiiCard(cornerRadius: 14, padding: 12)
-                        }
+                if !addSearch.isEmpty {
+                    Button {
+                        addSearch = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(VoxiiTheme.mutedSecondary)
                     }
                 }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.07))
+            .shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 5)
+
+            if addCandidates.isEmpty {
+                FriendsEmptyState(
+                    systemImage: "person.badge.plus",
+                    title: appearance.t("friends.searchHint")
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 14) {
+                        ForEach(addCandidates) { user in
+                            FriendCandidateRow(
+                                user: user,
+                                isRequested: requestedIDs.contains(user.id),
+                                onAdd: { Task { await sendRequest(user.id) } }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -919,44 +922,310 @@ private struct FriendRow: View {
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             VoxiiAvatarView(
                 text: friend.avatar ?? friend.username,
                 isOnline: friend.status?.lowercased() == "online",
-                size: 42
+                size: 52
             )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(friend.username)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.text)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(friend.username)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                        .lineLimit(1)
 
-                Text(appearance.statusLabel(friend.status))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(friend.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted)
+                    FriendsStatusChip(
+                        text: appearance.statusLabel(friend.status),
+                        accent: friend.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted
+                    )
+                }
+
+                if let email = friend.email, !email.isEmpty {
+                    Text(email)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.muted)
+                        .lineLimit(1)
+                }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
-            NavigationLink {
-                ChatView(peer: friend.asAPIUser)
-                    .environmentObject(session)
-            } label: {
-                Image(systemName: "message.fill")
-                    .font(.system(size: 13, weight: .bold))
-            }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+            HStack(spacing: 10) {
+                NavigationLink {
+                    ChatView(peer: friend.asAPIUser)
+                        .environmentObject(session)
+                } label: {
+                    Image(systemName: "message.fill")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .buttonStyle(
+                    VoxiiRoundButtonStyle(
+                        diameter: 44,
+                        variant: .neutral
+                    )
+                )
 
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "person.badge.minus")
-                    .font(.system(size: 13, weight: .bold))
-                    .frame(width: 34, height: 34)
+                Button {
+                    onRemove()
+                } label: {
+                    Image(systemName: "person.badge.minus")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .buttonStyle(
+                    VoxiiRoundButtonStyle(
+                        diameter: 44,
+                        variant: .danger,
+                        foregroundColor: .white
+                    )
+                )
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
         }
-        .voxiiCard(cornerRadius: 14, padding: 12)
+        .padding(16)
+        .background(FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.1))
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 8)
+    }
+}
+
+private struct PendingRequestRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
+    let user: FriendRequestUser
+    let onAccept: () -> Void
+    let onReject: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                VoxiiAvatarView(
+                    text: user.avatar ?? user.username,
+                    isOnline: user.status?.lowercased() == "online",
+                    size: 52
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(user.username)
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .foregroundStyle(VoxiiTheme.text)
+                            .lineLimit(1)
+
+                        FriendsStatusChip(
+                            text: appearance.t("friends.tab.pending"),
+                            accent: Color(hex: "#F59E0B") ?? .orange
+                        )
+                    }
+
+                    Text(user.email ?? appearance.t("common.noEmail"))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.muted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 12) {
+                Button(appearance.t("common.accept"), action: onAccept)
+                    .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
+                    .frame(maxWidth: .infinity)
+
+                Button(appearance.t("common.reject"), action: onReject)
+                    .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .danger))
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(16)
+        .background(FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.12))
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 8)
+    }
+}
+
+private struct FriendCandidateRow: View {
+    @EnvironmentObject private var appearance: VoxiiAppearance
+
+    let user: APIUser
+    let isRequested: Bool
+    let onAdd: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VoxiiAvatarView(
+                text: user.avatar ?? user.username,
+                isOnline: user.status?.lowercased() == "online",
+                size: 52
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(user.username)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                        .lineLimit(1)
+
+                    if user.status?.lowercased() == "online" {
+                        FriendsStatusChip(
+                            text: appearance.statusLabel(user.status),
+                            accent: VoxiiTheme.online
+                        )
+                    }
+                }
+
+                Text(user.email ?? appearance.t("common.noEmail"))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if isRequested {
+                FriendsStatusChip(
+                    text: appearance.t("common.requested"),
+                    accent: VoxiiTheme.online
+                )
+            } else {
+                Button(appearance.t("common.add"), action: onAdd)
+                    .buttonStyle(VoxiiGradientButtonStyle(isCompact: true))
+            }
+        }
+        .padding(16)
+        .background(FriendsGlassPanel(cornerRadius: 24, accentOpacity: 0.1))
+        .shadow(color: .black.opacity(0.16), radius: 12, x: 0, y: 8)
+    }
+}
+
+private struct FriendsEmptyState: View {
+    let systemImage: String
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(VoxiiTheme.accentGradient.opacity(0.24))
+                    .frame(width: 92, height: 92)
+                    .blur(radius: 16)
+
+                Circle()
+                    .fill(Color.black.opacity(0.18))
+                    .frame(width: 72, height: 72)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .overlay(
+                        Image(systemName: systemImage)
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(VoxiiTheme.accentLight)
+                    )
+            }
+
+            Text(title)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .background(FriendsGlassPanel(cornerRadius: 28, accentOpacity: 0.12))
+        .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+    }
+}
+
+private struct FriendsStatusChip: View {
+    let text: String
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(accent)
+                .frame(width: 7, height: 7)
+
+            Text(text)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .lineLimit(1)
+        }
+        .foregroundStyle(accent)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.16))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(accent.opacity(0.3), lineWidth: 0.9)
+        )
+    }
+}
+
+private struct FriendsGlassPanel: View {
+    let cornerRadius: CGFloat
+    var accentOpacity: Double = 0.08
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.black.opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.84)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.13),
+                                VoxiiTheme.glassStrong.opacity(0.82),
+                                Color.black.opacity(0.18)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                VoxiiTheme.accentBlue.opacity(accentOpacity),
+                                .clear
+                            ],
+                            center: .topLeading,
+                            startRadius: 8,
+                            endRadius: 240
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.14),
+                                Color.white.opacity(0.04),
+                                .clear
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .blendMode(.screen)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.11), lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.16), lineWidth: 0.6)
+                    .padding(1)
+            )
     }
 }
 
