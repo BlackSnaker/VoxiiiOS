@@ -11,7 +11,9 @@ final class VoxiiSocketDMClient: NSObject {
     private var isReady = false
     private var readyContinuation: CheckedContinuation<Void, Error>?
     private var sendContinuation: CheckedContinuation<DirectMessage, Error>?
-    private var pendingRequestID: String?
+    private var updateContinuation: CheckedContinuation<DirectMessage, Error>?
+    private var pendingSendRequestID: String?
+    private var pendingUpdateRequestID: String?
 
     private override init() {
         super.init()
@@ -29,12 +31,12 @@ final class VoxiiSocketDMClient: NSObject {
     ) async throws -> DirectMessage {
         try await ensureReady(serverURL: serverURL, token: token)
 
-        guard sendContinuation == nil else {
-            throw APIClientError.server("Another socket message is already being sent.")
+        guard sendContinuation == nil, updateContinuation == nil else {
+            throw APIClientError.server("Another socket DM operation is already in progress.")
         }
 
         let requestID = UUID().uuidString
-        pendingRequestID = requestID
+        pendingSendRequestID = requestID
         print("[VoxiiSocketDMClient] Sending socket DM requestId=\(requestID) receiverId=\(receiverID) textLength=\(text.count) fileId=\(file.id)")
 
         let payload = SocketDMSendCommand(
@@ -68,6 +70,46 @@ final class VoxiiSocketDMClient: NSObject {
         }
     }
 
+    func updateMessage(
+        serverURL: String,
+        token: String,
+        receiverID: Int,
+        messageID: Int,
+        text: String
+    ) async throws -> DirectMessage {
+        try await ensureReady(serverURL: serverURL, token: token)
+
+        guard sendContinuation == nil, updateContinuation == nil else {
+            throw APIClientError.server("Another socket DM operation is already in progress.")
+        }
+
+        let requestID = UUID().uuidString
+        pendingUpdateRequestID = requestID
+        print("[VoxiiSocketDMClient] Updating socket DM requestId=\(requestID) receiverId=\(receiverID) messageId=\(messageID) textLength=\(text.count)")
+
+        let payload = SocketDMUpdateCommand(
+            requestId: requestID,
+            receiverId: receiverID,
+            messageId: messageID,
+            newText: text
+        )
+
+        let data = try JSONEncoder().encode(payload)
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            updateContinuation = continuation
+            let script = "window.voxiiUpdateDM(\(json));"
+            webView?.evaluateJavaScript(script) { [weak self] _, error in
+                guard let self else { return }
+                if let error {
+                    let wrapped = APIClientError.server("Socket update bootstrap failed: \(error.localizedDescription)")
+                    self.finishUpdate(with: .failure(wrapped))
+                }
+            }
+        }
+    }
+
     private func ensureReady(serverURL: String, token: String) async throws {
         if loadedServerURL != serverURL || loadedToken != token || webView == nil {
             print("[VoxiiSocketDMClient] Rebuilding socket web view for \(serverURL)")
@@ -88,6 +130,7 @@ final class VoxiiSocketDMClient: NSObject {
         readyContinuation = nil
 
         finishSend(with: .failure(APIClientError.server("Socket messenger reconfigured.")))
+        finishUpdate(with: .failure(APIClientError.server("Socket messenger reconfigured.")))
 
         isReady = false
         loadedServerURL = serverURL
@@ -133,7 +176,8 @@ final class VoxiiSocketDMClient: NSObject {
           <script>
             const cfg = \(json);
             let socket = null;
-            let pendingRequestId = null;
+            let pendingSend = { requestId: null };
+            let pendingUpdate = { requestId: null, messageId: null, receiverId: null };
 
             function post(type, payload = {}) {
               const handler = window.webkit?.messageHandlers?.voxiiSocketDM;
@@ -161,12 +205,40 @@ final class VoxiiSocketDMClient: NSObject {
               });
 
               socket.on('dm-sent', (data) => {
-                if (!pendingRequestId) return;
+                if (!pendingSend.requestId) return;
                 post('dm-sent', {
-                  requestId: pendingRequestId,
+                  requestId: pendingSend.requestId,
                   message: data?.message || null
                 });
-                pendingRequestId = null;
+                pendingSend.requestId = null;
+              });
+
+              socket.on('dm-updated', (data) => {
+                if (!pendingUpdate.requestId) return;
+                const sameMessage = String(data?.message?.id ?? '') === String(pendingUpdate.messageId ?? '');
+                const sameReceiver = String(data?.receiverId ?? '') === String(pendingUpdate.receiverId ?? '');
+                if (!sameMessage || !sameReceiver) return;
+                post('dm-updated', {
+                  requestId: pendingUpdate.requestId,
+                  message: data?.message || null
+                });
+                pendingUpdate.requestId = null;
+                pendingUpdate.messageId = null;
+                pendingUpdate.receiverId = null;
+              });
+
+              socket.on('updated-dm', (data) => {
+                if (!pendingUpdate.requestId) return;
+                const sameMessage = String(data?.message?.id ?? '') === String(pendingUpdate.messageId ?? '');
+                const sameReceiver = String(data?.receiverId ?? '') === String(pendingUpdate.receiverId ?? '');
+                if (!sameMessage || !sameReceiver) return;
+                post('dm-updated', {
+                  requestId: pendingUpdate.requestId,
+                  message: data?.message || null
+                });
+                pendingUpdate.requestId = null;
+                pendingUpdate.messageId = null;
+                pendingUpdate.receiverId = null;
               });
             }
 
@@ -179,19 +251,51 @@ final class VoxiiSocketDMClient: NSObject {
                 return;
               }
 
-              pendingRequestId = payload.requestId;
+              pendingSend.requestId = payload.requestId;
               socket.emit('send-dm', {
                 receiverId: payload.receiverId,
                 message: payload.message
               });
 
               setTimeout(() => {
-                if (pendingRequestId === payload.requestId) {
+                if (pendingSend.requestId === payload.requestId) {
                   post('send-error', {
                     requestId: payload.requestId,
                     message: 'Timed out waiting for dm-sent.'
                   });
-                  pendingRequestId = null;
+                  pendingSend.requestId = null;
+                }
+              }, 12000);
+            };
+
+            window.voxiiUpdateDM = function(payload) {
+              if (!socket || !socket.connected) {
+                post('update-error', {
+                  requestId: payload?.requestId || '',
+                  message: 'Socket is not connected.'
+                });
+                return;
+              }
+
+              pendingUpdate.requestId = payload.requestId;
+              pendingUpdate.messageId = payload.messageId;
+              pendingUpdate.receiverId = payload.receiverId;
+
+              socket.emit('update-dm', {
+                messageId: payload.messageId,
+                newText: payload.newText,
+                receiverId: payload.receiverId
+              });
+
+              setTimeout(() => {
+                if (pendingUpdate.requestId === payload.requestId) {
+                  post('update-error', {
+                    requestId: payload.requestId,
+                    message: 'Timed out waiting for dm-updated.'
+                  });
+                  pendingUpdate.requestId = null;
+                  pendingUpdate.messageId = null;
+                  pendingUpdate.receiverId = null;
                 }
               }, 12000);
             };
@@ -219,7 +323,7 @@ final class VoxiiSocketDMClient: NSObject {
     }
 
     private func finishSend(with result: Result<DirectMessage, Error>) {
-        pendingRequestID = nil
+        pendingSendRequestID = nil
         guard let sendContinuation else {
             return
         }
@@ -229,6 +333,20 @@ final class VoxiiSocketDMClient: NSObject {
             sendContinuation.resume(returning: message)
         case let .failure(error):
             sendContinuation.resume(throwing: error)
+        }
+    }
+
+    private func finishUpdate(with result: Result<DirectMessage, Error>) {
+        pendingUpdateRequestID = nil
+        guard let updateContinuation else {
+            return
+        }
+        self.updateContinuation = nil
+        switch result {
+        case let .success(message):
+            updateContinuation.resume(returning: message)
+        case let .failure(error):
+            updateContinuation.resume(throwing: error)
         }
     }
 }
@@ -252,10 +370,11 @@ extension VoxiiSocketDMClient: WKScriptMessageHandler, WKNavigationDelegate {
             let error = APIClientError.server(errorMessage)
             finishReady(with: .failure(error))
             finishSend(with: .failure(error))
+            finishUpdate(with: .failure(error))
 
         case "send-error":
             let requestId = payload["requestId"] as? String
-            guard requestId == pendingRequestID else {
+            guard requestId == pendingSendRequestID else {
                 return
             }
             let errorMessage = payload["message"] as? String ?? "Socket send failed."
@@ -264,7 +383,7 @@ extension VoxiiSocketDMClient: WKScriptMessageHandler, WKNavigationDelegate {
 
         case "dm-sent":
             let requestId = payload["requestId"] as? String
-            guard requestId == pendingRequestID else {
+            guard requestId == pendingSendRequestID else {
                 return
             }
             print("[VoxiiSocketDMClient] dm-sent received requestId=\(requestId ?? "nil")")
@@ -277,6 +396,30 @@ extension VoxiiSocketDMClient: WKScriptMessageHandler, WKNavigationDelegate {
             }
             finishSend(with: .success(directMessage))
 
+        case "update-error":
+            let requestId = payload["requestId"] as? String
+            guard requestId == pendingUpdateRequestID else {
+                return
+            }
+            let errorMessage = payload["message"] as? String ?? "Socket update failed."
+            print("[VoxiiSocketDMClient] Update error requestId=\(requestId ?? "nil"): \(errorMessage)")
+            finishUpdate(with: .failure(APIClientError.server(errorMessage)))
+
+        case "dm-updated":
+            let requestId = payload["requestId"] as? String
+            guard requestId == pendingUpdateRequestID else {
+                return
+            }
+            print("[VoxiiSocketDMClient] dm-updated received requestId=\(requestId ?? "nil")")
+            guard let rawMessage = payload["message"],
+                  JSONSerialization.isValidJSONObject(rawMessage),
+                  let data = try? JSONSerialization.data(withJSONObject: rawMessage),
+                  let directMessage = try? JSONDecoder().decode(DirectMessage.self, from: data) else {
+                finishUpdate(with: .failure(APIClientError.server("Socket sent an invalid DM update payload.")))
+                return
+            }
+            finishUpdate(with: .success(directMessage))
+
         default:
             break
         }
@@ -286,12 +429,14 @@ extension VoxiiSocketDMClient: WKScriptMessageHandler, WKNavigationDelegate {
         let wrapped = APIClientError.server(error.localizedDescription)
         finishReady(with: .failure(wrapped))
         finishSend(with: .failure(wrapped))
+        finishUpdate(with: .failure(wrapped))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let wrapped = APIClientError.server(error.localizedDescription)
         finishReady(with: .failure(wrapped))
         finishSend(with: .failure(wrapped))
+        finishUpdate(with: .failure(wrapped))
     }
 }
 
@@ -299,6 +444,13 @@ private struct SocketDMSendCommand: Encodable {
     let requestId: String
     let receiverId: Int
     let message: SocketDMSendPayload
+}
+
+private struct SocketDMUpdateCommand: Encodable {
+    let requestId: String
+    let receiverId: Int
+    let messageId: Int
+    let newText: String
 }
 
 private struct SocketDMSendPayload: Encodable {

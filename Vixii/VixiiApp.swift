@@ -20,6 +20,7 @@ enum VoxiiPushNotifications {
     private static let apnsTokenKey = "voxii_apns_device_token"
     private static let voipTokenKey = "voxii_voip_device_token"
     private static let foregroundMessageNotificationKey = "voxiiForegroundMessageNotification"
+    private static var isAPNsRegistrationDisabledForSession = false
 
     static var storedAPNSToken: String? {
         let token = defaults.string(forKey: apnsTokenKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -31,24 +32,40 @@ enum VoxiiPushNotifications {
         return (token?.isEmpty == false) ? token : nil
     }
 
+    static var supportsRemotePushRegistration: Bool {
+        !isAPNsRegistrationDisabledForSession
+    }
+
     static func requestAuthorizationAndRegisterIfNeeded() async {
         let center = UNUserNotificationCenter.current()
         do {
             let settings = await center.notificationSettings()
+            let authorizationGranted: Bool
             switch settings.authorizationStatus {
             case .authorized, .provisional, .ephemeral:
-                UIApplication.shared.registerForRemoteNotifications()
+                authorizationGranted = true
             case .notDetermined:
                 let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
                 guard granted else {
                     return
                 }
-                UIApplication.shared.registerForRemoteNotifications()
+                authorizationGranted = true
             case .denied:
                 return
             @unknown default:
                 return
             }
+
+            guard authorizationGranted else {
+                return
+            }
+
+            guard supportsRemotePushRegistration else {
+                print("[Push] Skipping APNs registration for current session")
+                return
+            }
+
+            UIApplication.shared.registerForRemoteNotifications()
         } catch {
             print("[Push] Authorization request failed: \(error.localizedDescription)")
         }
@@ -59,12 +76,18 @@ enum VoxiiPushNotifications {
         guard !token.isEmpty else {
             return
         }
+        isAPNsRegistrationDisabledForSession = false
         defaults.set(token, forKey: apnsTokenKey)
         NotificationCenter.default.post(
             name: .voxiiPushTokenDidUpdate,
             object: ["provider": "apns", "token": token]
         )
         print("[Push] APNs token updated")
+    }
+
+    static func disableAPNsRegistrationForCurrentSession() {
+        isAPNsRegistrationDisabledForSession = true
+        defaults.removeObject(forKey: apnsTokenKey)
     }
 
     static func saveVoIPToken(_ data: Data) {
@@ -140,6 +163,12 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        let description = error.localizedDescription.lowercased()
+        if description.contains("aps-environment") || description.contains("entitlement") {
+            VoxiiPushNotifications.disableAPNsRegistrationForCurrentSession()
+            print("[Push] APNs registration skipped: aps-environment entitlement is missing")
+            return
+        }
         print("[Push] Failed to register for remote notifications: \(error.localizedDescription)")
     }
 

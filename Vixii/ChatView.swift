@@ -972,7 +972,12 @@ struct ChatView: View {
                     throw APIClientError.server(appearance.t("chat.messageEmpty"))
                 }
 
-                _ = try await session.updateMessage(messageID: editingMessage.id, text: trimmedText)
+                let updatedMessage = try await session.updateMessage(
+                    messageID: editingMessage.id,
+                    text: trimmedText,
+                    receiverID: peer.id
+                )
+                upsertMessage(mergedUpdatedMessage(updatedMessage, onto: editingMessage, content: trimmedText))
             } else {
                 var uploadedFileId: Int?
                 var uploadedAttachment: APIFileAttachment?
@@ -1422,6 +1427,23 @@ struct ChatView: View {
             edited: message.edited,
             originalContent: message.originalContent,
             replyTo: message.replyTo
+        )
+    }
+
+    private func mergedUpdatedMessage(_ updatedMessage: DirectMessage, onto originalMessage: DirectMessage, content: String) -> DirectMessage {
+        DirectMessage(
+            id: originalMessage.id,
+            content: updatedMessage.content.isEmpty ? content : updatedMessage.content,
+            senderID: updatedMessage.senderID == 0 ? originalMessage.senderID : updatedMessage.senderID,
+            receiverID: updatedMessage.receiverID == 0 ? originalMessage.receiverID : updatedMessage.receiverID,
+            username: updatedMessage.username ?? originalMessage.username,
+            avatar: updatedMessage.avatar ?? originalMessage.avatar,
+            createdAt: updatedMessage.createdAt.isEmpty ? originalMessage.createdAt : updatedMessage.createdAt,
+            reactions: updatedMessage.reactions.isEmpty ? originalMessage.reactions : updatedMessage.reactions,
+            file: updatedMessage.file ?? originalMessage.file,
+            edited: updatedMessage.edited || originalMessage.edited || updatedMessage.content != originalMessage.content || content != originalMessage.content,
+            originalContent: updatedMessage.originalContent ?? originalMessage.originalContent ?? originalMessage.content,
+            replyTo: updatedMessage.replyTo ?? originalMessage.replyTo
         )
     }
 

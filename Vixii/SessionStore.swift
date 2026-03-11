@@ -227,8 +227,21 @@ final class SessionStore: ObservableObject {
         )
     }
 
-    func updateMessage(messageID: Int, text: String) async throws -> DirectMessage {
+    func updateMessage(messageID: Int, text: String, receiverID: Int? = nil) async throws -> DirectMessage {
         let token = try requireToken()
+        if let receiverID {
+            do {
+                return try await VoxiiSocketDMClient.shared.updateMessage(
+                    serverURL: serverURL,
+                    token: token,
+                    receiverID: receiverID,
+                    messageID: messageID,
+                    text: text
+                )
+            } catch {
+                print("[SessionStore][DMEdit] Socket update failed, falling back to HTTP: \(error.localizedDescription)")
+            }
+        }
         return try await api.updateMessage(baseURL: serverURL, token: token, messageID: messageID, text: text)
     }
 
@@ -507,7 +520,8 @@ final class SessionStore: ObservableObject {
             return
         }
 
-        if let apnsToken = VoxiiPushNotifications.storedAPNSToken {
+        if VoxiiPushNotifications.supportsRemotePushRegistration,
+           let apnsToken = VoxiiPushNotifications.storedAPNSToken {
             await syncSinglePushToken(
                 provider: "apns",
                 deviceToken: apnsToken,
@@ -550,8 +564,26 @@ final class SessionStore: ObservableObject {
             )
             defaults.set(marker, forKey: key)
         } catch {
-            print("[SessionStore][Push] \(provider) token sync failed: \(error.localizedDescription)")
+            if shouldSilenceUnsupportedPushRegistration(error) {
+                defaults.set(marker, forKey: key)
+                print("[SessionStore][Push] \(provider) token sync skipped: server does not support push token registration")
+            } else {
+                print("[SessionStore][Push] \(provider) token sync failed: \(error.localizedDescription)")
+            }
         }
+    }
+
+    private func shouldSilenceUnsupportedPushRegistration(_ error: Error) -> Bool {
+        guard case let APIClientError.server(message) = error else {
+            return false
+        }
+
+        let lowercased = message.lowercased()
+        return lowercased.contains("404")
+            || lowercased.contains("405")
+            || lowercased.contains("cannot post")
+            || lowercased.contains("not found")
+            || lowercased.contains("no route")
     }
 
     private func clearPushSyncMarkers() {
