@@ -73,6 +73,18 @@ final class VoxiiAppearance: ObservableObject {
         }
     }
 
+    @Published var callRingtone: VoxiiCallRingtonePreset {
+        didSet {
+            VoxiiSoundPreferences.callRingtone = callRingtone
+        }
+    }
+
+    @Published var messageSoundPreset: VoxiiMessageSoundPreset {
+        didSet {
+            VoxiiSoundPreferences.messageSoundPreset = messageSoundPreset
+        }
+    }
+
     @Published var linkPreviewEnabled: Bool {
         didSet {
             defaults.set(linkPreviewEnabled, forKey: Keys.linkPreviewEnabled)
@@ -107,6 +119,8 @@ final class VoxiiAppearance: ObservableObject {
 
         let savedLanguage = VoxiiLanguage(rawValue: defaults.string(forKey: Keys.language) ?? "")
             ?? VoxiiLanguage.fromPreferredLocale
+        let savedCallRingtone = VoxiiSoundPreferences.callRingtone
+        let savedMessageSoundPreset = VoxiiSoundPreferences.messageSoundPreset
 
         let hasStoredPreviewFlag = defaults.object(forKey: Keys.linkPreviewEnabled) != nil
         let previewEnabled = hasStoredPreviewFlag ? defaults.bool(forKey: Keys.linkPreviewEnabled) : true
@@ -117,6 +131,8 @@ final class VoxiiAppearance: ObservableObject {
         accentHex = savedAccent
         transparencyPercent = max(50, min(100, transparency))
         language = savedLanguage
+        callRingtone = savedCallRingtone
+        messageSoundPreset = savedMessageSoundPreset
         linkPreviewEnabled = previewEnabled
         hiddenPreviews = hidden
     }
@@ -190,6 +206,32 @@ final class VoxiiAppearance: ObservableObject {
             return t("theme.ocean")
         case .coffee:
             return t("theme.coffee")
+        }
+    }
+
+    func callRingtoneLabel(_ preset: VoxiiCallRingtonePreset) -> String {
+        switch preset {
+        case .voxii:
+            return t("sound.ringtone.voxii")
+        case .crystal:
+            return t("sound.ringtone.crystal")
+        case .pulse:
+            return t("sound.ringtone.pulse")
+        case .silent:
+            return t("sound.ringtone.silent")
+        }
+    }
+
+    func messageSoundLabel(_ preset: VoxiiMessageSoundPreset) -> String {
+        switch preset {
+        case .classic:
+            return t("sound.message.classic")
+        case .glass:
+            return t("sound.message.glass")
+        case .minimal:
+            return t("sound.message.minimal")
+        case .off:
+            return t("sound.message.off")
         }
     }
 
@@ -353,7 +395,17 @@ final class VoxiiAppearance: ObservableObject {
             "chat.replyingTo": "Replying to %@",
             "chat.messagePlaceholder": "Message",
             "chat.updatePlaceholder": "Update message",
+            "chat.emojiPicker": "Emoji",
+            "chat.emojiCategory.smileys": "Smileys",
+            "chat.emojiCategory.people": "People",
+            "chat.emojiCategory.animals": "Nature",
+            "chat.emojiCategory.food": "Food",
+            "chat.emojiCategory.activities": "Activity",
+            "chat.emojiCategory.symbols": "Symbols",
             "chat.transcribe": "Transcribe",
+            "chat.transcribing": "Transcribing...",
+            "chat.transcription": "Transcription",
+            "chat.useText": "Use text",
             "chat.recording": "Recording voice message...",
             "chat.stop": "Stop",
             "chat.emptyTitle": "No messages yet",
@@ -405,6 +457,13 @@ final class VoxiiAppearance: ObservableObject {
             "settings.theme": "Theme",
             "settings.accent": "Accent Color",
             "settings.glass": "Glass Effect",
+            "settings.sounds": "Sounds",
+            "settings.soundsSubtitle": "Ringtone and in-app audio feedback",
+            "settings.ringtone": "Ringtone",
+            "settings.messageSounds": "Message Sounds",
+            "settings.preview": "Preview",
+            "settings.previewSend": "Send",
+            "settings.previewIncoming": "Incoming",
             "settings.privacy": "Privacy & Content",
             "settings.privacySubtitle": "Control previews and content visibility",
             "settings.linkPreview": "Link Previews",
@@ -420,6 +479,14 @@ final class VoxiiAppearance: ObservableObject {
             "settings.signOutHint": "You can sign out from this device at any time.",
             "settings.signOut": "Sign Out",
             "settings.signingOut": "Signing out...",
+            "sound.ringtone.voxii": "Voxii",
+            "sound.ringtone.crystal": "Crystal",
+            "sound.ringtone.pulse": "Pulse",
+            "sound.ringtone.silent": "Silent",
+            "sound.message.classic": "Classic",
+            "sound.message.glass": "Glass",
+            "sound.message.minimal": "Minimal",
+            "sound.message.off": "Off",
             "theme.default": "Default Dark",
             "theme.midnight": "Midnight Blue",
             "theme.forest": "Forest Green",
@@ -527,7 +594,17 @@ final class VoxiiAppearance: ObservableObject {
             "chat.replyingTo": "Ответ для %@",
             "chat.messagePlaceholder": "Сообщение",
             "chat.updatePlaceholder": "Изменить сообщение",
+            "chat.emojiPicker": "Эмодзи",
+            "chat.emojiCategory.smileys": "Смайлы",
+            "chat.emojiCategory.people": "Люди",
+            "chat.emojiCategory.animals": "Природа",
+            "chat.emojiCategory.food": "Еда",
+            "chat.emojiCategory.activities": "Активность",
+            "chat.emojiCategory.symbols": "Символы",
             "chat.transcribe": "Расшифровать",
+            "chat.transcribing": "Идёт расшифровка...",
+            "chat.transcription": "Расшифровка",
+            "chat.useText": "Вставить",
             "chat.recording": "Идёт запись голосового сообщения...",
             "chat.stop": "Стоп",
             "chat.emptyTitle": "Сообщений пока нет",
@@ -579,6 +656,13 @@ final class VoxiiAppearance: ObservableObject {
             "settings.theme": "Тема",
             "settings.accent": "Акцентный цвет",
             "settings.glass": "Эффект стекла",
+            "settings.sounds": "Звуки",
+            "settings.soundsSubtitle": "Рингтон и звуки внутри приложения",
+            "settings.ringtone": "Рингтон",
+            "settings.messageSounds": "Звуки сообщений",
+            "settings.preview": "Прослушать",
+            "settings.previewSend": "Отправка",
+            "settings.previewIncoming": "Входящее",
             "settings.privacy": "Приватность и контент",
             "settings.privacySubtitle": "Управление превью и видимостью контента",
             "settings.linkPreview": "Превью ссылок",
@@ -594,6 +678,14 @@ final class VoxiiAppearance: ObservableObject {
             "settings.signOutHint": "Вы можете выйти из аккаунта на этом устройстве в любой момент.",
             "settings.signOut": "Выйти",
             "settings.signingOut": "Выход...",
+            "sound.ringtone.voxii": "Voxii",
+            "sound.ringtone.crystal": "Crystal",
+            "sound.ringtone.pulse": "Pulse",
+            "sound.ringtone.silent": "Без звука",
+            "sound.message.classic": "Классический",
+            "sound.message.glass": "Glass",
+            "sound.message.minimal": "Минимальный",
+            "sound.message.off": "Выключено",
             "theme.default": "Стандартная тёмная",
             "theme.midnight": "Полночная синяя",
             "theme.forest": "Лесная зелёная",

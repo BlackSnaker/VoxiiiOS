@@ -94,6 +94,56 @@ private enum DMMessageTextPolicy {
     }
 }
 
+private struct ComposerEmojiCategory: Identifiable, Hashable {
+    let id: String
+    let icon: String
+    let titleKey: String
+    let emojis: [String]
+}
+
+private enum ComposerEmojiCatalog {
+    static let categories: [ComposerEmojiCategory] = [
+        .init(
+            id: "smileys",
+            icon: "😀",
+            titleKey: "chat.emojiCategory.smileys",
+            emojis: ["😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "🥰", "😍", "😘", "😎", "🤩", "🥳", "😇", "🤗", "🤔", "😴", "🤤", "🤯", "😤", "😭", "😡", "🥺", "😮", "😏", "🙄", "🤐", "🤠", "👻", "💀", "🤖"]
+        ),
+        .init(
+            id: "people",
+            icon: "👋",
+            titleKey: "chat.emojiCategory.people",
+            emojis: ["👋", "🤚", "🖐️", "✋", "🫶", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘", "👍", "👎", "👏", "🙌", "🙏", "💪", "🫡", "👀", "🫶", "🤝", "💅", "✍️", "🕺", "💃", "🧑‍💻", "👨‍💻", "👩‍💻", "🧠", "👑", "🎅"]
+        ),
+        .init(
+            id: "animals",
+            icon: "🐶",
+            titleKey: "chat.emojiCategory.animals",
+            emojis: ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🦄", "🐝", "🦋", "🐢", "🐬", "🐙", "🌸", "🌹", "🌺", "🌻", "🌈", "⭐", "🔥", "🌙"]
+        ),
+        .init(
+            id: "food",
+            icon: "🍔",
+            titleKey: "chat.emojiCategory.food",
+            emojis: ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍒", "🥝", "🍍", "🥥", "🥑", "🍅", "🥕", "🌽", "🍔", "🍟", "🍕", "🌭", "🌮", "🌯", "🥪", "🍣", "🍜", "🍝", "🍩", "🍪", "🎂", "☕"]
+        ),
+        .init(
+            id: "activities",
+            icon: "⚽",
+            titleKey: "chat.emojiCategory.activities",
+            emojis: ["⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏓", "🥊", "🥋", "⛷️", "🏂", "🏋️", "🤸", "🏄", "🏊", "🚴", "🏆", "🥇", "🎯", "🎮", "🎲", "🎳", "🎹", "🎸", "🎤", "🎧", "🎬", "🎨", "🎭", "🎉", "🎊", "✨"]
+        ),
+        .init(
+            id: "symbols",
+            icon: "❤️",
+            titleKey: "chat.emojiCategory.symbols",
+            emojis: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💯", "✅", "❌", "⭕", "⚠️", "🚫", "‼️", "⁉️", "💬", "🗯️", "♻️", "🔔", "⭐", "✨"]
+        )
+    ]
+
+    static let defaultCategoryID = categories.first?.id ?? "smileys"
+}
+
 struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -105,6 +155,8 @@ struct ChatView: View {
 
     @State private var messages: [DirectMessage] = []
     @State private var messageText = ""
+    @State private var isEmojiPickerPresented = false
+    @State private var selectedEmojiCategoryID = ComposerEmojiCatalog.defaultCategoryID
     @State private var replyToMessage: DirectMessage?
     @State private var editingMessage: DirectMessage?
     @State private var messageIdForDelete: Int?
@@ -122,6 +174,9 @@ struct ChatView: View {
     @State private var errorMessage: String?
     @State private var isDeleteDialogPresented = false
     @State private var localAttachmentByMessageID: [Int: APIFileAttachment] = [:]
+    @State private var didCompleteInitialMessageLoad = false
+
+    @FocusState private var isComposerFocused: Bool
 
     private let refreshTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
 
@@ -274,6 +329,9 @@ struct ChatView: View {
                                 onReactionPick: { emoji in
                                     Task { await addReaction(to: message.id, emoji: emoji) }
                                 },
+                                onUseTranscription: { text in
+                                    appendTranscribedText(text)
+                                },
                                 onOpenFile: { url in
                                     openURL(url)
                                 }
@@ -299,6 +357,16 @@ struct ChatView: View {
         }
         .background(chatSurface(cornerRadius: 28, tint: Color.white.opacity(0.02)))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                guard isEmojiPickerPresented else {
+                    return
+                }
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    isEmojiPickerPresented = false
+                }
+            }
+        )
     }
 
     private var composer: some View {
@@ -332,9 +400,15 @@ struct ChatView: View {
                 voiceRecordingBanner
             }
 
+            if isEmojiPickerPresented && !isRecordingVoice {
+                emojiPickerBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             HStack(alignment: .bottom, spacing: 10) {
                 HStack(alignment: .bottom, spacing: 10) {
                     Button {
+                        isEmojiPickerPresented = false
                         isFileImporterPresented = true
                     } label: {
                         Image(systemName: "plus")
@@ -355,7 +429,24 @@ struct ChatView: View {
                         .foregroundStyle(VoxiiTheme.text)
                         .textInputAutocapitalization(.sentences)
                         .autocorrectionDisabled(false)
+                        .focused($isComposerFocused)
                         .disabled(isRecordingVoice)
+
+                    Button {
+                        toggleEmojiPicker()
+                    } label: {
+                        Image(systemName: isEmojiPickerPresented ? "keyboard.chevron.compact.down.fill" : "face.smiling.fill")
+                            .font(.system(size: 16, weight: .bold))
+                    }
+                    .buttonStyle(
+                        VoxiiRoundButtonStyle(
+                            diameter: 34,
+                            variant: isEmojiPickerPresented ? .accent : .neutral,
+                            foregroundColor: isEmojiPickerPresented ? .white : VoxiiTheme.accentLight
+                        )
+                    )
+                    .accessibilityLabel(appearance.t("chat.emojiPicker"))
+                    .disabled(isSending || isRecordingVoice)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -378,6 +469,7 @@ struct ChatView: View {
             }
         }
         .padding(.horizontal, 2)
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: isEmojiPickerPresented)
     }
 
     private var composerPlaceholder: String {
@@ -415,17 +507,152 @@ struct ChatView: View {
         return !canStartVoiceFromAction
     }
 
+    private var selectedEmojiCategory: ComposerEmojiCategory {
+        ComposerEmojiCatalog.categories.first(where: { $0.id == selectedEmojiCategoryID }) ?? ComposerEmojiCatalog.categories[0]
+    }
+
+    private var emojiGridColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: 28, maximum: 40), spacing: 8), count: 8)
+    }
+
+    private var emojiPickerBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "face.smiling.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(VoxiiTheme.accentLight)
+
+                    Text(appearance.t("chat.emojiPicker"))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                }
+
+                Spacer()
+
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        isEmojiPickerPresented = false
+                    }
+                    isComposerFocused = true
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .buttonStyle(
+                    VoxiiRoundButtonStyle(
+                        diameter: 28,
+                        variant: .neutral,
+                        foregroundColor: VoxiiTheme.accentLight
+                    )
+                )
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ComposerEmojiCatalog.categories) { category in
+                        Button {
+                            selectedEmojiCategoryID = category.id
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(category.icon)
+                                    .font(.system(size: 16))
+
+                                Text(appearance.t(category.titleKey))
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(selectedEmojiCategoryID == category.id ? Color.white : VoxiiTheme.text)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(emojiCategoryBackground(isSelected: selectedEmojiCategoryID == category.id))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+
+            Text(appearance.t(selectedEmojiCategory.titleKey))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.muted)
+                .padding(.horizontal, 2)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: emojiGridColumns, spacing: 8) {
+                    ForEach(selectedEmojiCategory.emojis, id: \.self) { emoji in
+                        Button {
+                            insertEmoji(emoji)
+                        } label: {
+                            Text(emoji)
+                                .font(.system(size: 24))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                                .padding(.vertical, 3)
+                                .background(emojiOptionBackground)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+                .padding(.bottom, 2)
+            }
+            .frame(height: 156)
+        }
+        .padding(12)
+        .background(chatBannerSurface(cornerRadius: 24, tint: VoxiiTheme.accent.opacity(0.1)))
+    }
+
+    private func emojiCategoryBackground(isSelected: Bool) -> some View {
+        Capsule(style: .continuous)
+            .fill(isSelected ? AnyShapeStyle(VoxiiTheme.accentGradient) : AnyShapeStyle(Color.white.opacity(0.05)))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(isSelected ? 0.14 : 0.08), lineWidth: 0.9)
+            )
+    }
+
+    private var emojiOptionBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.white.opacity(0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 0.8)
+            )
+    }
+
+    private func toggleEmojiPicker() {
+        guard !isSending, !isRecordingVoice else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            isEmojiPickerPresented.toggle()
+        }
+
+        if isEmojiPickerPresented {
+            isComposerFocused = true
+        }
+    }
+
+    private func insertEmoji(_ emoji: String) {
+        messageText += emoji
+        errorMessage = nil
+        isComposerFocused = true
+    }
+
     private func handleComposerActionTap() {
         guard !isSending else {
             return
         }
 
         if isRecordingVoice {
+            isEmojiPickerPresented = false
             toggleVoiceRecording()
             return
         }
 
         if canSend {
+            isEmojiPickerPresented = false
             Task { await sendOrUpdate() }
             return
         }
@@ -433,7 +660,25 @@ struct ChatView: View {
         guard canStartVoiceFromAction else {
             return
         }
+        isEmojiPickerPresented = false
         toggleVoiceRecording()
+    }
+
+    private func appendTranscribedText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+
+        if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messageText = trimmed
+        } else {
+            messageText += "\n\(trimmed)"
+        }
+
+        errorMessage = nil
+        isEmojiPickerPresented = false
+        isComposerFocused = true
     }
 
     private var canSend: Bool {
@@ -678,6 +923,7 @@ struct ChatView: View {
         defer { isSyncing = false }
 
         do {
+            let previousMessageIDs = Set(messages.map(\.id))
             let fetchedMessages = try await session.fetchMessages(with: peer.id)
             var attachmentCache = localAttachmentByMessageID
             let mergedMessages = fetchedMessages.map { message in
@@ -697,9 +943,17 @@ struct ChatView: View {
             attachmentCache = attachmentCache.filter { existingIDs.contains($0.key) }
             localAttachmentByMessageID = attachmentCache
 
+            let shouldPlayIncomingSound = didCompleteInitialMessageLoad && mergedMessages.contains { message in
+                !previousMessageIDs.contains(message.id) && message.senderID != session.currentUser?.id
+            }
+
             if mergedMessages != messages {
                 messages = mergedMessages
+                if shouldPlayIncomingSound {
+                    VoxiiMessageSoundPlayer.shared.playIncoming()
+                }
             }
+            didCompleteInitialMessageLoad = true
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -781,12 +1035,14 @@ struct ChatView: View {
                 }
 
                 upsertMessage(sentMessage)
+                VoxiiMessageSoundPlayer.shared.playSend()
             }
 
             messageText = ""
             replyToMessage = nil
             editingMessage = nil
             pendingAttachment = nil
+            isEmojiPickerPresented = false
             errorMessage = nil
             await loadMessages()
         } catch {
@@ -1208,6 +1464,7 @@ private struct MessageBubbleView: View {
     let onDelete: () -> Void
     let onReactionTap: (ReactionSummary) -> Void
     let onReactionPick: (String) -> Void
+    let onUseTranscription: (String) -> Void
     let onOpenFile: (URL) -> Void
 
     private let reactionPalette = ["👍", "❤️", "😂", "🔥", "👏", "😮", "😢", "👀"]
@@ -1233,7 +1490,7 @@ private struct MessageBubbleView: View {
                 Spacer(minLength: 40)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
                 header
 
                 if let reply = message.replyTo {
@@ -1262,8 +1519,8 @@ private struct MessageBubbleView: View {
                 actionSection
             }
             .frame(maxWidth: bubbleMaxWidth, alignment: .leading)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 13)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .background(bubbleBackground)
             .overlay(
                 bubbleShape
@@ -1283,7 +1540,7 @@ private struct MessageBubbleView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 6) {
             if !isOutgoing {
                 senderChip
             }
@@ -1305,64 +1562,68 @@ private struct MessageBubbleView: View {
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         let replyVoiceURL = DMMessageTextPolicy.voiceUploadReference(from: reply.text ?? "")
 
-        return HStack(alignment: .top, spacing: 9) {
+        return HStack(alignment: .top, spacing: 7) {
             RoundedRectangle(cornerRadius: 99, style: .continuous)
                 .fill(isOutgoing ? Color.white.opacity(0.92) : VoxiiTheme.accentLight)
-                .frame(width: 3)
+                .frame(width: 2.5)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 1.5) {
                 Text(appearance.tf("chat.replyAuthor", reply.author ?? appearance.t("common.unknown")))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
 
                 if let text = visibleReplyText, !text.isEmpty {
                     Text(text)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
                         .lineLimit(1)
                 } else if let file = reply.file {
                     Text(appearance.tf("chat.attachmentInline", file.filename))
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
                         .lineLimit(1)
                 } else if replyVoiceURL != nil {
                     Text(appearance.t("chat.voiceInline"))
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(isOutgoing ? Color.white.opacity(0.82) : VoxiiTheme.muted)
                         .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(inlinePanelBackground(cornerRadius: 12))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(inlinePanelBackground(cornerRadius: 10))
     }
 
     private func fileBlock(_ file: APIFileAttachment) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             if isAudioAttachment(file), let fileURL {
-                VoiceMessagePlayerView(url: fileURL, isOutgoing: isOutgoing)
+                VoiceMessagePlayerView(
+                    url: fileURL,
+                    isOutgoing: isOutgoing,
+                    onUseTranscription: onUseTranscription
+                )
             } else {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(Color.white.opacity(isOutgoing ? 0.14 : 0.08))
                         Image(systemName: iconForFile(file))
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
                     }
-                    .frame(width: 36, height: 36)
+                    .frame(width: 30, height: 30)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.filename)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
                             .lineLimit(1)
 
                         if let size = file.size {
                             Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : VoxiiTheme.muted)
                         }
                     }
@@ -1376,7 +1637,7 @@ private struct MessageBubbleView: View {
                             Image(systemName: "arrow.up.forward")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(isOutgoing ? Color.white.opacity(0.94) : VoxiiTheme.accentLight)
-                                .frame(width: 30, height: 30)
+                                .frame(width: 28, height: 28)
                         }
                         .buttonStyle(
                             MessageBubbleActionIconStyle(
@@ -1389,18 +1650,22 @@ private struct MessageBubbleView: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(inlinePanelBackground(cornerRadius: 14))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(inlinePanelBackground(cornerRadius: 11))
     }
 
     private func fallbackVoiceBlock(_ url: URL) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VoiceMessagePlayerView(url: url, isOutgoing: isOutgoing)
+        VStack(alignment: .leading, spacing: 7) {
+            VoiceMessagePlayerView(
+                url: url,
+                isOutgoing: isOutgoing,
+                onUseTranscription: onUseTranscription
+            )
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 8)
-        .background(inlinePanelBackground(cornerRadius: 14))
+        .padding(.horizontal, 7)
+        .padding(.vertical, 6)
+        .background(inlinePanelBackground(cornerRadius: 11))
     }
 
     private var reactionSection: some View {
@@ -1416,8 +1681,8 @@ private struct MessageBubbleView: View {
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2.5)
                         .background(
                             Capsule()
                                 .fill(reactedByCurrentUser(reaction) ? VoxiiTheme.accent.opacity(0.28) : Color.white.opacity(isOutgoing ? 0.12 : 0.05))
@@ -1456,7 +1721,7 @@ private struct MessageBubbleView: View {
     }
 
     private var actionSection: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             actionIconButton(
                 systemImage: "arrowshape.turn.up.left.fill",
                 accessibilityLabel: appearance.t("common.reply"),
@@ -1487,8 +1752,8 @@ private struct MessageBubbleView: View {
             }
         }
         .padding(.top, 2)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 4.5)
+        .padding(.vertical, 4)
         .background(
             Capsule(style: .continuous)
                 .fill(Color.white.opacity(isOutgoing ? 0.06 : 0.035))
@@ -1512,7 +1777,7 @@ private struct MessageBubbleView: View {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
         }
         .buttonStyle(MessageBubbleActionIconStyle(backgroundTint: backgroundTint, strokeTint: strokeTint))
         .accessibilityLabel(accessibilityLabel)
@@ -1578,7 +1843,7 @@ private struct MessageBubbleView: View {
     }
 
     private var bubbleMaxWidth: CGFloat {
-        352
+        286
     }
 
     private var bubbleCornerRadius: CGFloat {
@@ -1736,13 +2001,13 @@ private struct MessageBubbleView: View {
 
     private func messageTextBlock(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .medium, design: .rounded))
-            .lineSpacing(2.5)
+            .font(.system(size: 17, weight: .medium, design: .rounded))
+            .lineSpacing(2.6)
             .foregroundStyle(isOutgoing ? .white : VoxiiTheme.text)
             .textSelection(.enabled)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(textPanelBackground(cornerRadius: 16))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(textPanelBackground(cornerRadius: 13))
     }
 
     private func textPanelBackground(cornerRadius: CGFloat) -> some View {
@@ -1787,15 +2052,15 @@ private struct MessageBubbleView: View {
         HStack(spacing: 6) {
             Circle()
                 .fill(VoxiiTheme.accentLight)
-                .frame(width: 6, height: 6)
+                .frame(width: 5, height: 5)
 
             Text(message.username ?? appearance.t("common.unknown"))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(VoxiiTheme.accentLight)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
         .background(
             Capsule(style: .continuous)
                 .fill(Color.black.opacity(0.18))
@@ -1808,9 +2073,9 @@ private struct MessageBubbleView: View {
 
     private func metadataChip(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .medium, design: .rounded))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2.5)
             .background(
                 Capsule(style: .continuous)
                     .fill(Color.black.opacity(isOutgoing ? 0.14 : 0.18))
@@ -1852,18 +2117,24 @@ private struct MessageBubbleActionIconStyle: ButtonStyle {
 }
 
 private struct VoiceMessagePlayerView: View {
+    @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var appearance: VoxiiAppearance
 
     let url: URL
     let isOutgoing: Bool
+    let onUseTranscription: (String) -> Void
 
     @StateObject private var player: VoiceMessagePlayerModel
     @State private var isEditingProgress = false
     @State private var draftProgress = 0.0
+    @State private var isTranscribing = false
+    @State private var transcriptionText: String?
+    @State private var transcriptionErrorText: String?
 
-    init(url: URL, isOutgoing: Bool) {
+    init(url: URL, isOutgoing: Bool, onUseTranscription: @escaping (String) -> Void) {
         self.url = url
         self.isOutgoing = isOutgoing
+        self.onUseTranscription = onUseTranscription
         _player = StateObject(wrappedValue: VoiceMessagePlayerModel(url: url))
     }
 
@@ -1927,6 +2198,8 @@ private struct VoiceMessagePlayerView: View {
             )
             .tint(isOutgoing ? .white : VoxiiTheme.accent)
 
+            transcriptionSection
+
             if let errorText = player.errorText {
                 Text(errorText)
                     .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -1946,6 +2219,207 @@ private struct VoiceMessagePlayerView: View {
             return VoiceMessagePlayerModel.format(seconds: draftProgress * max(player.durationSeconds, 0))
         }
         return player.currentTimeText
+    }
+
+    @ViewBuilder
+    private var transcriptionSection: some View {
+        if let transcriptionText {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Label {
+                        Text(appearance.t("chat.transcription"))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                    } icon: {
+                        Image(systemName: "text.bubble.fill")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.92) : VoxiiTheme.accentLight)
+
+                    Spacer()
+
+                    Button {
+                        onUseTranscription(transcriptionText)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.down.left")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(appearance.t("chat.useText"))
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(isOutgoing ? VoxiiTheme.accent : .white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(transcriptionActionBackground)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Text(transcriptionText)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .lineSpacing(2)
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : VoxiiTheme.text)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(transcriptionCardBackground)
+        } else {
+            Button {
+                Task { await transcribeVoiceMessage() }
+            } label: {
+                HStack(spacing: 8) {
+                    if isTranscribing {
+                        ProgressView()
+                            .tint(isOutgoing ? .white : VoxiiTheme.accent)
+                            .scaleEffect(0.82)
+                    } else {
+                        Image(systemName: "text.bubble")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+
+                    Text(isTranscribing ? appearance.t("chat.transcribing") : appearance.t("chat.transcribe"))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+
+                    Spacer()
+                }
+                .foregroundStyle(isOutgoing ? Color.white.opacity(0.92) : VoxiiTheme.accentLight)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(transcriptionPromptBackground)
+            }
+            .buttonStyle(.plain)
+            .disabled(isTranscribing)
+        }
+
+        if let transcriptionErrorText {
+            Text(transcriptionErrorText)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.red.opacity(0.92))
+        }
+    }
+
+    private var transcriptionPromptBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(isOutgoing ? 0.08 : 0.05))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.1 : 0.08), lineWidth: 0.8)
+            )
+    }
+
+    private var transcriptionCardBackground: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.black.opacity(isOutgoing ? 0.14 : 0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isOutgoing ? 0.04 : 0.02),
+                                (isOutgoing ? VoxiiTheme.accentLight.opacity(0.04) : VoxiiTheme.accent.opacity(0.025)),
+                                Color.black.opacity(0.14)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.1 : 0.06), lineWidth: 0.8)
+            )
+    }
+
+    private var transcriptionActionBackground: some View {
+        Capsule(style: .continuous)
+            .fill(isOutgoing ? AnyShapeStyle(Color.white) : AnyShapeStyle(VoxiiTheme.accentGradient))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(isOutgoing ? 0.18 : 0.08), lineWidth: 0.8)
+            )
+    }
+
+    private func transcribeVoiceMessage() async {
+        guard !isTranscribing else {
+            return
+        }
+
+        isTranscribing = true
+        transcriptionErrorText = nil
+        defer { isTranscribing = false }
+
+        do {
+            let payload = try await loadAudioPayload()
+            let result = try await session.transcribeAudio(
+                fileData: payload.data,
+                filename: payload.filename,
+                mimeType: payload.mimeType
+            )
+
+            let normalized = normalizedTranscription(result.text)
+            guard !normalized.isEmpty else {
+                throw APIClientError.server(appearance.t("chat.noSpeechDetected"))
+            }
+
+            transcriptionText = normalized
+        } catch {
+            transcriptionErrorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func loadAudioPayload() async throws -> (data: Data, filename: String, mimeType: String) {
+        if url.isFileURL {
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                throw APIClientError.invalidUploadData
+            }
+            return (data, url.lastPathComponent, inferredMimeType(for: url))
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard !data.isEmpty else {
+            throw APIClientError.invalidUploadData
+        }
+
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            throw APIClientError.server("HTTP \(httpResponse.statusCode)")
+        }
+
+        let filename = response.suggestedFilename ?? url.lastPathComponent
+        let mimeType = response.mimeType ?? inferredMimeType(for: url)
+        return (data, filename, mimeType)
+    }
+
+    private func inferredMimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "m4a", "mp4":
+            return "audio/mp4"
+        case "mp3":
+            return "audio/mpeg"
+        case "wav":
+            return "audio/wav"
+        case "aac":
+            return "audio/aac"
+        case "ogg":
+            return "audio/ogg"
+        case "webm":
+            return "audio/webm"
+        case "flac":
+            return "audio/flac"
+        default:
+            return "audio/m4a"
+        }
+    }
+
+    private func normalizedTranscription(_ rawText: String) -> String {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.lowercased()
+        if normalized.isEmpty || normalized == "(no speech detected)" || normalized == "no speech detected" {
+            return ""
+        }
+        return trimmed
     }
 }
 
@@ -2468,22 +2942,373 @@ private final class VideoCallController: ObservableObject {
 }
 
 @MainActor
-private final class VoxiiRingtonePlayer {
-    static let shared = VoxiiRingtonePlayer()
+final class VoxiiMessageSoundPlayer: NSObject, @preconcurrency AVAudioPlayerDelegate {
+    static let shared = VoxiiMessageSoundPlayer()
 
-    private var audioPlayer: AVAudioPlayer?
-    private var isActive = false
-    private static let generatedRingtoneFilename = "voxii_ringtone.wav"
+    private enum SoundKind {
+        case send
+        case incoming
 
-    private init() {}
+        var debugName: String {
+            switch self {
+            case .send:
+                return "send"
+            case .incoming:
+                return "incoming"
+            }
+        }
+    }
 
-    func startIfNeeded() {
-        guard !isActive else {
+    private var activePlayers: [AVAudioPlayer] = []
+
+    private override init() {}
+
+    func playSend() {
+        play(.send)
+    }
+
+    func playIncoming() {
+        play(.incoming)
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        activePlayers.removeAll { $0 === player }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        activePlayers.removeAll { $0 === player }
+    }
+
+    private func play(_ kind: SoundKind) {
+        let preset = VoxiiSoundPreferences.messageSoundPreset
+        guard preset != .off else {
             return
         }
 
         do {
-            let url = try Self.ringtoneFileURL()
+            let url = try soundFileURL(for: kind, preset: preset)
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.delegate = self
+            player.volume = kind == .send ? 0.22 : 0.3
+            player.prepareToPlay()
+
+            guard player.play() else {
+                return
+            }
+
+            activePlayers.append(player)
+        } catch {
+            print("[ChatView][Sound] Failed to play \(kind.debugName): \(error.localizedDescription)")
+        }
+    }
+
+    private func soundFileURL(for kind: SoundKind, preset: VoxiiMessageSoundPreset) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+        let fileURL = directory.appendingPathComponent(Self.fileName(for: kind, preset: preset))
+
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            let wavData = makeMessageToneWAV(for: kind, preset: preset, sampleRate: 22_050)
+            try wavData.write(to: fileURL, options: .atomic)
+        }
+
+        return fileURL
+    }
+
+    private static func fileName(for kind: SoundKind, preset: VoxiiMessageSoundPreset) -> String {
+        "voxii_message_\(preset.rawValue)_\(kind.debugName).wav"
+    }
+
+    private func makeMessageToneWAV(for kind: SoundKind, preset: VoxiiMessageSoundPreset, sampleRate: Int) -> Data {
+        switch (preset, kind) {
+        case (.classic, .send):
+            return makeClassicSendToneWAV(sampleRate: sampleRate)
+        case (.classic, .incoming):
+            return makeClassicIncomingToneWAV(sampleRate: sampleRate)
+        case (.glass, .send):
+            return makeGlassSendToneWAV(sampleRate: sampleRate)
+        case (.glass, .incoming):
+            return makeGlassIncomingToneWAV(sampleRate: sampleRate)
+        case (.minimal, .send):
+            return makeMinimalSendToneWAV(sampleRate: sampleRate)
+        case (.minimal, .incoming):
+            return makeMinimalIncomingToneWAV(sampleRate: sampleRate)
+        case (.off, _):
+            return makePCM16MonoWAV(pcm: [], sampleRate: sampleRate)
+        }
+    }
+
+    private func makeClassicSendToneWAV(sampleRate: Int) -> Data {
+        let pulseFrames = Int(Double(sampleRate) * 0.075)
+        let tailFrames = Int(Double(sampleRate) * 0.045)
+        let fadeFrames = Int(Double(sampleRate) * 0.012)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(pulseFrames + tailFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: pulseFrames,
+            frequencyA: 1320,
+            frequencyB: 1760,
+            amplitude: 0.22,
+            fadeFrames: fadeFrames
+        )
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: tailFrames,
+            frequencyA: 1760,
+            frequencyB: 2093,
+            amplitude: 0.18,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func makeClassicIncomingToneWAV(sampleRate: Int) -> Data {
+        let firstPulseFrames = Int(Double(sampleRate) * 0.08)
+        let gapFrames = Int(Double(sampleRate) * 0.03)
+        let secondPulseFrames = Int(Double(sampleRate) * 0.11)
+        let fadeFrames = Int(Double(sampleRate) * 0.014)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(firstPulseFrames + gapFrames + secondPulseFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: firstPulseFrames,
+            frequencyA: 740,
+            frequencyB: 988,
+            amplitude: 0.2,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: gapFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: secondPulseFrames,
+            frequencyA: 880,
+            frequencyB: 1174,
+            amplitude: 0.24,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func makeGlassSendToneWAV(sampleRate: Int) -> Data {
+        let firstFrames = Int(Double(sampleRate) * 0.055)
+        let secondFrames = Int(Double(sampleRate) * 0.05)
+        let fadeFrames = Int(Double(sampleRate) * 0.012)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(firstFrames + secondFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: firstFrames,
+            frequencyA: 1480,
+            frequencyB: 1976,
+            amplitude: 0.18,
+            fadeFrames: fadeFrames
+        )
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: secondFrames,
+            frequencyA: 1760,
+            frequencyB: 2349,
+            amplitude: 0.15,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func makeGlassIncomingToneWAV(sampleRate: Int) -> Data {
+        let pulseFrames = Int(Double(sampleRate) * 0.09)
+        let tailFrames = Int(Double(sampleRate) * 0.14)
+        let fadeFrames = Int(Double(sampleRate) * 0.016)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(pulseFrames + tailFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: pulseFrames,
+            frequencyA: 988,
+            frequencyB: 1319,
+            amplitude: 0.18,
+            fadeFrames: fadeFrames
+        )
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: tailFrames,
+            frequencyA: 1174,
+            frequencyB: 1568,
+            amplitude: 0.22,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func makeMinimalSendToneWAV(sampleRate: Int) -> Data {
+        let frames = Int(Double(sampleRate) * 0.045)
+        let fadeFrames = Int(Double(sampleRate) * 0.01)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(frames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: frames,
+            frequencyA: 1760,
+            frequencyB: 2093,
+            amplitude: 0.14,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func makeMinimalIncomingToneWAV(sampleRate: Int) -> Data {
+        let firstFrames = Int(Double(sampleRate) * 0.04)
+        let gapFrames = Int(Double(sampleRate) * 0.018)
+        let secondFrames = Int(Double(sampleRate) * 0.06)
+        let fadeFrames = Int(Double(sampleRate) * 0.01)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(firstFrames + gapFrames + secondFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: firstFrames,
+            frequencyA: 1047,
+            frequencyB: 1397,
+            amplitude: 0.14,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: gapFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: secondFrames,
+            frequencyA: 1174,
+            frequencyB: 1568,
+            amplitude: 0.17,
+            fadeFrames: fadeFrames
+        )
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private func appendTone(
+        into buffer: inout [Int16],
+        sampleRate: Int,
+        frames: Int,
+        frequencyA: Double,
+        frequencyB: Double,
+        amplitude: Double,
+        fadeFrames: Int
+    ) {
+        guard frames > 0 else {
+            return
+        }
+
+        for frame in 0..<frames {
+            let t = Double(frame) / Double(sampleRate)
+            let envelope: Double
+            if frame < fadeFrames {
+                envelope = Double(frame) / Double(max(1, fadeFrames))
+            } else if frame > frames - fadeFrames {
+                envelope = Double(max(0, frames - frame)) / Double(max(1, fadeFrames))
+            } else {
+                envelope = 1
+            }
+
+            let sample =
+                sin(2.0 * .pi * frequencyA * t) * 0.64 +
+                sin(2.0 * .pi * frequencyB * t) * 0.36
+
+            let clamped = max(-1.0, min(1.0, sample * amplitude * envelope))
+            buffer.append(Int16(clamped * Double(Int16.max)))
+        }
+    }
+
+    private func appendSilence(into buffer: inout [Int16], frames: Int) {
+        guard frames > 0 else {
+            return
+        }
+        buffer.append(contentsOf: repeatElement(0, count: frames))
+    }
+
+    private func makePCM16MonoWAV(pcm: [Int16], sampleRate: Int) -> Data {
+        let numChannels: UInt16 = 1
+        let bitsPerSample: UInt16 = 16
+        let byteRate = UInt32(sampleRate) * UInt32(numChannels) * UInt32(bitsPerSample / 8)
+        let blockAlign = UInt16(numChannels * (bitsPerSample / 8))
+        let dataChunkSize = UInt32(pcm.count * MemoryLayout<Int16>.size)
+        let riffChunkSize = UInt32(36) + dataChunkSize
+
+        var data = Data()
+        data.reserveCapacity(Int(riffChunkSize) + 8)
+
+        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
+        data.appendLittleEndian(riffChunkSize)
+        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
+        data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20])
+        data.appendLittleEndian(UInt32(16))
+        data.appendLittleEndian(UInt16(1))
+        data.appendLittleEndian(numChannels)
+        data.appendLittleEndian(UInt32(sampleRate))
+        data.appendLittleEndian(byteRate)
+        data.appendLittleEndian(blockAlign)
+        data.appendLittleEndian(bitsPerSample)
+        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
+        data.appendLittleEndian(dataChunkSize)
+
+        for sample in pcm {
+            data.appendLittleEndian(sample)
+        }
+
+        return data
+    }
+}
+
+@MainActor
+final class VoxiiRingtonePlayer {
+    static let shared = VoxiiRingtonePlayer()
+
+    private var audioPlayer: AVAudioPlayer?
+    private var isActive = false
+    private var previewTask: Task<Void, Never>?
+
+    private init() {}
+
+    func startIfNeeded() {
+        previewTask?.cancel()
+        previewTask = nil
+
+        guard !isActive else {
+            return
+        }
+
+        let preset = VoxiiSoundPreferences.callRingtone
+        guard preset != .silent else {
+            return
+        }
+
+        do {
+            let url = try Self.ringtoneFileURL(for: preset)
             let player = try AVAudioPlayer(contentsOf: url)
             player.numberOfLoops = -1
             player.volume = 0.9
@@ -2499,7 +3324,47 @@ private final class VoxiiRingtonePlayer {
         }
     }
 
+    func previewCurrent() {
+        let preset = VoxiiSoundPreferences.callRingtone
+        guard preset != .silent else {
+            stopIfNeeded()
+            return
+        }
+
+        stopIfNeeded()
+        do {
+            let url = try Self.ringtoneFileURL(for: preset)
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.numberOfLoops = -1
+            player.volume = 0.9
+            player.prepareToPlay()
+            guard player.play() else {
+                return
+            }
+            audioPlayer = player
+            isActive = true
+            previewTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_900_000_000)
+                guard !Task.isCancelled else {
+                    return
+                }
+                await MainActor.run {
+                    self?.stopPlaybackOnly()
+                    self?.previewTask = nil
+                }
+            }
+        } catch {
+            print("[VideoCall][Ringtone] Failed to preview ringtone: \(error.localizedDescription)")
+        }
+    }
+
     func stopIfNeeded() {
+        previewTask?.cancel()
+        previewTask = nil
+        stopPlaybackOnly()
+    }
+
+    private func stopPlaybackOnly() {
         guard isActive else {
             return
         }
@@ -2508,19 +3373,40 @@ private final class VoxiiRingtonePlayer {
         isActive = false
     }
 
-    private static func ringtoneFileURL() throws -> URL {
+    private static func generatedRingtoneFilename(for preset: VoxiiCallRingtonePreset) -> String {
+        preset.filename ?? "voxii_call_ringtone.wav"
+    }
+
+    private static func ringtoneFileURL(for preset: VoxiiCallRingtonePreset) throws -> URL {
+        if let bundledURL = VoxiiCallSound.bundledRingtoneURL(for: preset) {
+            return bundledURL
+        }
+
         let directory = FileManager.default.temporaryDirectory
-        let fileURL = directory.appendingPathComponent(generatedRingtoneFilename)
+        let fileURL = directory.appendingPathComponent(generatedRingtoneFilename(for: preset))
 
         if !FileManager.default.fileExists(atPath: fileURL.path) {
-            let wavData = makeRingtoneWAV(sampleRate: 22_050)
+            let wavData = makeRingtoneWAV(for: preset, sampleRate: 22_050)
             try wavData.write(to: fileURL, options: .atomic)
         }
 
         return fileURL
     }
 
-    private static func makeRingtoneWAV(sampleRate: Int) -> Data {
+    private static func makeRingtoneWAV(for preset: VoxiiCallRingtonePreset, sampleRate: Int) -> Data {
+        switch preset {
+        case .voxii:
+            return makeVoxiiRingtoneWAV(sampleRate: sampleRate)
+        case .crystal:
+            return makeCrystalRingtoneWAV(sampleRate: sampleRate)
+        case .pulse:
+            return makePulseRingtoneWAV(sampleRate: sampleRate)
+        case .silent:
+            return makePCM16MonoWAV(pcm: [], sampleRate: sampleRate)
+        }
+    }
+
+    private static func makeVoxiiRingtoneWAV(sampleRate: Int) -> Data {
         let toneAFrames = Int(Double(sampleRate) * 0.30)
         let toneBFrames = Int(Double(sampleRate) * 0.30)
         let shortPauseFrames = Int(Double(sampleRate) * 0.16)
@@ -2547,6 +3433,104 @@ private final class VoxiiRingtonePlayer {
             frequencyA: 932,
             frequencyB: 1397,
             amplitude: 0.34,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: longPauseFrames)
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private static func makeCrystalRingtoneWAV(sampleRate: Int) -> Data {
+        let brightFrames = Int(Double(sampleRate) * 0.26)
+        let brightTailFrames = Int(Double(sampleRate) * 0.26)
+        let pauseFrames = Int(Double(sampleRate) * 0.18)
+        let fadeFrames = Int(Double(sampleRate) * 0.015)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity((brightFrames + brightTailFrames + pauseFrames) * 2)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: brightFrames,
+            frequencyA: 1319,
+            frequencyB: 1760,
+            amplitude: 0.2,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: pauseFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: brightTailFrames,
+            frequencyA: 1568,
+            frequencyB: 2093,
+            amplitude: 0.22,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: Int(Double(sampleRate) * 0.92))
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: brightFrames,
+            frequencyA: 1174,
+            frequencyB: 1568,
+            amplitude: 0.18,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: pauseFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: brightTailFrames,
+            frequencyA: 1480,
+            frequencyB: 1976,
+            amplitude: 0.2,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: Int(Double(sampleRate) * 0.92))
+
+        return makePCM16MonoWAV(pcm: pcm, sampleRate: sampleRate)
+    }
+
+    private static func makePulseRingtoneWAV(sampleRate: Int) -> Data {
+        let firstFrames = Int(Double(sampleRate) * 0.18)
+        let secondFrames = Int(Double(sampleRate) * 0.18)
+        let thirdFrames = Int(Double(sampleRate) * 0.24)
+        let shortPauseFrames = Int(Double(sampleRate) * 0.08)
+        let longPauseFrames = Int(Double(sampleRate) * 0.74)
+        let fadeFrames = Int(Double(sampleRate) * 0.012)
+
+        var pcm: [Int16] = []
+        pcm.reserveCapacity(firstFrames + secondFrames + thirdFrames + shortPauseFrames * 2 + longPauseFrames)
+
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: firstFrames,
+            frequencyA: 740,
+            frequencyB: 988,
+            amplitude: 0.2,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: shortPauseFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: secondFrames,
+            frequencyA: 784,
+            frequencyB: 1047,
+            amplitude: 0.22,
+            fadeFrames: fadeFrames
+        )
+        appendSilence(into: &pcm, frames: shortPauseFrames)
+        appendTone(
+            into: &pcm,
+            sampleRate: sampleRate,
+            frames: thirdFrames,
+            frequencyA: 880,
+            frequencyB: 1174,
+            amplitude: 0.24,
             fadeFrames: fadeFrames
         )
         appendSilence(into: &pcm, frames: longPauseFrames)

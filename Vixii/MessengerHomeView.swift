@@ -2446,6 +2446,7 @@ private struct SettingsHomeView: View {
                         screenHeader
                         profileCard
                         appearanceSection
+                        soundSection
                         privacySection
                         serverSection
                         accountSection
@@ -2494,6 +2495,17 @@ private struct SettingsHomeView: View {
                 symbol: "lock.shield.fill"
             )
             privacyCard
+        }
+    }
+
+    private var soundSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                title: appearance.t("settings.sounds"),
+                subtitle: appearance.t("settings.soundsSubtitle"),
+                symbol: "speaker.wave.3.fill"
+            )
+            soundCard
         }
     }
 
@@ -2668,6 +2680,127 @@ private struct SettingsHomeView: View {
 
                 Slider(value: $appearance.transparencyPercent, in: 50...100, step: 1)
                     .tint(VoxiiTheme.accent)
+            }
+        }
+        .voxiiCard(cornerRadius: 18, padding: 16)
+    }
+
+    private var soundCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(appearance.t("settings.ringtone"))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                    Spacer()
+                    Button(appearance.t("settings.preview")) {
+                        VoxiiRingtonePlayer.shared.previewCurrent()
+                    }
+                    .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                    .disabled(appearance.callRingtone == .silent)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(VoxiiCallRingtonePreset.allCases) { preset in
+                        Button {
+                            appearance.callRingtone = preset
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: preset.icon)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(appearance.callRingtone == preset ? VoxiiTheme.accentLight : VoxiiTheme.muted)
+
+                                Text(appearance.callRingtoneLabel(preset))
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(VoxiiTheme.text)
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 0)
+
+                                if appearance.callRingtone == preset {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(VoxiiTheme.accentLight)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 11)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(appearance.callRingtone == preset ? VoxiiTheme.accent.opacity(0.18) : VoxiiTheme.glass)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(
+                                        appearance.callRingtone == preset ? VoxiiTheme.accent.opacity(0.55) : VoxiiTheme.stroke,
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(appearance.t("settings.messageSounds"))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.text)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button(appearance.t("settings.previewSend")) {
+                            VoxiiMessageSoundPlayer.shared.playSend()
+                        }
+                        .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                        .disabled(appearance.messageSoundPreset == .off)
+
+                        Button(appearance.t("settings.previewIncoming")) {
+                            VoxiiMessageSoundPlayer.shared.playIncoming()
+                        }
+                        .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                        .disabled(appearance.messageSoundPreset == .off)
+                    }
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(VoxiiMessageSoundPreset.allCases) { preset in
+                        Button {
+                            appearance.messageSoundPreset = preset
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: preset.icon)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(appearance.messageSoundPreset == preset ? VoxiiTheme.accentLight : VoxiiTheme.muted)
+
+                                Text(appearance.messageSoundLabel(preset))
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(VoxiiTheme.text)
+                                    .lineLimit(1)
+
+                                Spacer(minLength: 0)
+
+                                if appearance.messageSoundPreset == preset {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(VoxiiTheme.accentLight)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 11)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(appearance.messageSoundPreset == preset ? VoxiiTheme.accent.opacity(0.18) : VoxiiTheme.glass)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(
+                                        appearance.messageSoundPreset == preset ? VoxiiTheme.accent.opacity(0.55) : VoxiiTheme.stroke,
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                    }
+                }
             }
         }
         .voxiiCard(cornerRadius: 18, padding: 16)

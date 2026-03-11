@@ -81,6 +81,11 @@ enum VoxiiPushNotifications {
     }
 
     static func scheduleForegroundMessageNotification(messageID: String, title: String, body: String) {
+        guard UIApplication.shared.applicationState != .active else {
+            print("[Push][Message] Foreground notification suppressed because app is active")
+            return
+        }
+
         let trimmedID = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedID.isEmpty else {
             return
@@ -144,13 +149,16 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let userInfo = notification.request.content.userInfo
+        let requestID = notification.request.identifier
         if let payload = IncomingCallPayload.fromRemoteNotification(userInfo: userInfo) {
             VoxiiCallKitManager.shared.reportIncomingCall(payload)
             completionHandler([])
             return
         }
-        if (userInfo[syntheticMessageNotificationKey] as? Bool) == true {
-            completionHandler([.banner, .list, .badge, .sound])
+        if requestID.hasPrefix("voxii-foreground-message-")
+            || (userInfo[syntheticMessageNotificationKey] as? Bool) == true
+            || IncomingMessageNotificationPayload.fromRemoteNotification(userInfo: userInfo) != nil {
+            completionHandler([])
             return
         }
         completionHandler([.banner, .list, .badge, .sound])
@@ -186,7 +194,7 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             print(
                 "[Push][Message] Remote message notification received: id=\(messagePayload.id), hasAlert=\(hasVisibleAlert)"
             )
-            if !hasVisibleAlert {
+            if !hasVisibleAlert && application.applicationState != .active {
                 scheduleSyntheticMessageNotification(messagePayload)
             }
             completionHandler(.newData)

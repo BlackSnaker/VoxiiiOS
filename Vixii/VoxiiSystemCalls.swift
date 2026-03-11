@@ -368,28 +368,24 @@ struct IncomingMessageNotificationPayload: Identifiable, Hashable {
 final class VoxiiCallKitManager: NSObject, CXProviderDelegate {
     static let shared = VoxiiCallKitManager()
 
-    private let provider: CXProvider
+    private var provider: CXProvider
     private let callController = CXCallController()
     private var uuidByEventID: [String: UUID] = [:]
     private var payloadByUUID: [UUID: IncomingCallPayload] = [:]
     private var pendingIncomingPayload: IncomingCallPayload?
     private var pendingAnswerPayload: IncomingCallPayload?
+    private var configuredRingtoneFilename: String?
 
     override private init() {
-        let configuration = CXProviderConfiguration()
-        configuration.supportedHandleTypes = [.generic]
-        configuration.includesCallsInRecents = false
-        configuration.maximumCallsPerCallGroup = 1
-        configuration.maximumCallGroups = 1
-        configuration.supportsVideo = true
-        configuration.ringtoneSound = nil
-
-        provider = CXProvider(configuration: configuration)
+        configuredRingtoneFilename = VoxiiCallSound.ringtoneFilename
+        provider = Self.makeProvider(ringtoneSound: configuredRingtoneFilename)
         super.init()
         provider.setDelegate(self, queue: nil)
     }
 
     func reportIncomingCall(_ payload: IncomingCallPayload) {
+        ensureProviderConfiguration()
+
         if let existingUUID = uuidByEventID[payload.id] {
             payloadByUUID[existingUUID] = payload
             notifyIncoming(payload)
@@ -447,6 +443,30 @@ final class VoxiiCallKitManager: NSObject, CXProviderDelegate {
     private func notifyIncoming(_ payload: IncomingCallPayload) {
         pendingIncomingPayload = payload
         NotificationCenter.default.post(name: .voxiiIncomingCallDidArrive, object: payload)
+    }
+
+    private static func makeProvider(ringtoneSound: String?) -> CXProvider {
+        let configuration = CXProviderConfiguration()
+        configuration.supportedHandleTypes = [.generic]
+        configuration.includesCallsInRecents = false
+        configuration.maximumCallsPerCallGroup = 1
+        configuration.maximumCallGroups = 1
+        configuration.supportsVideo = true
+        configuration.ringtoneSound = ringtoneSound
+
+        return CXProvider(configuration: configuration)
+    }
+
+    private func ensureProviderConfiguration() {
+        let selectedFilename = VoxiiCallSound.ringtoneFilename
+        guard selectedFilename != configuredRingtoneFilename, payloadByUUID.isEmpty else {
+            return
+        }
+
+        provider.invalidate()
+        configuredRingtoneFilename = selectedFilename
+        provider = Self.makeProvider(ringtoneSound: selectedFilename)
+        provider.setDelegate(self, queue: nil)
     }
 
     private func clearCall(uuid: UUID) {

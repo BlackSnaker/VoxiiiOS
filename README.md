@@ -3,6 +3,8 @@
 ## RU
 **Voxii iOS** - нативный мессенджер для iPhone/iPad, реализованный на SwiftUI и подключаемый к серверу Voxii.
 
+Дневник проекта и список доработок: [PROJECT_DIARY.md](PROJECT_DIARY.md)
+
 ### Возможности
 - Авторизация и регистрация
 - Личные сообщения (DM): отправка, редактирование, удаление, ответы, реакции
@@ -33,6 +35,8 @@
 
 ## EN
 **Voxii iOS** is a native SwiftUI messenger client for iPhone/iPad that connects to a Voxii backend.
+
+Project diary and implementation notes: [PROJECT_DIARY.md](PROJECT_DIARY.md)
 
 ### Features
 - Authentication and registration
