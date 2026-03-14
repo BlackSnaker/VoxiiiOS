@@ -20,6 +20,12 @@ enum VoxiiPushNotifications {
     private static let apnsTokenKey = "voxii_apns_device_token"
     private static let voipTokenKey = "voxii_voip_device_token"
     private static let foregroundMessageNotificationKey = "voxiiForegroundMessageNotification"
+    private static let syntheticMessageNotificationKey = "voxiiSyntheticMessageNotification"
+    private static let syntheticCallNotificationKey = "voxiiSyntheticCallNotification"
+    private static let messageNotificationPrefix = "voxii-message-"
+    private static let foregroundMessagePrefix = "voxii-foreground-message-"
+    private static let callNotificationPrefix = "voxii-call-"
+    private static let incomingCallCategoryID = "voxii.incoming.call"
     private static var isAPNsRegistrationDisabledForSession = false
 
     static var storedAPNSToken: String? {
@@ -45,7 +51,9 @@ enum VoxiiPushNotifications {
             case .authorized, .provisional, .ephemeral:
                 authorizationGranted = true
             case .notDetermined:
-                let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+                let granted = try await center.requestAuthorization(
+                    options: [.alert, .badge, .sound]
+                )
                 guard granted else {
                     return
                 }
@@ -69,6 +77,21 @@ enum VoxiiPushNotifications {
         } catch {
             print("[Push] Authorization request failed: \(error.localizedDescription)")
         }
+    }
+
+    static func registerNotificationCategories() {
+        let openAction = UNNotificationAction(
+            identifier: "voxii.open",
+            title: "Open",
+            options: [.foreground]
+        )
+        let callCategory = UNNotificationCategory(
+            identifier: incomingCallCategoryID,
+            actions: [openAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([callCategory])
     }
 
     static func saveDeviceToken(_ data: Data) {
@@ -124,13 +147,15 @@ enum VoxiiPushNotifications {
         content.title = normalizedTitle.isEmpty ? "Voxii" : normalizedTitle
         content.body = normalizedBody
         content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.relevanceScore = 0.95
         content.userInfo = [
             foregroundMessageNotificationKey: true,
             "messageId": trimmedID
         ]
 
         let request = UNNotificationRequest(
-            identifier: "voxii-foreground-message-\(trimmedID)",
+            identifier: "\(foregroundMessagePrefix)\(trimmedID)",
             content: content,
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.15, repeats: false)
         )
@@ -143,19 +168,153 @@ enum VoxiiPushNotifications {
             }
         }
     }
+
+    static func scheduleBackgroundMessageNotification(
+        _ payload: IncomingMessageNotificationPayload,
+        after delay: TimeInterval = 0.12
+    ) {
+        let normalizedTitle = payload.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedBody = payload.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedBody.isEmpty else {
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = normalizedTitle.isEmpty ? "Voxii" : normalizedTitle
+        content.body = normalizedBody
+        content.sound = .default
+        content.badge = NSNumber(value: max(payload.unreadCount ?? 1, 1))
+        content.threadIdentifier = payload.conversationID ?? payload.senderID.map { "dm-\($0)" } ?? "voxii-messages"
+        content.interruptionLevel = .timeSensitive
+        content.relevanceScore = 0.98
+        content.userInfo = [
+            syntheticMessageNotificationKey: true,
+            "event": "new-message",
+            "messageId": payload.id,
+            "title": normalizedTitle.isEmpty ? "Voxii" : normalizedTitle,
+            "body": normalizedBody,
+            "senderId": payload.senderID as Any,
+            "unreadCount": payload.unreadCount as Any,
+            "conversationId": payload.conversationID as Any
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: "\(messageNotificationPrefix)\(payload.id)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(delay, 0.1), repeats: false)
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                print("[Push][Message] Failed to schedule background fallback notification: \(error.localizedDescription)")
+            } else {
+                print("[Push][Message] Background fallback notification scheduled: id=\(payload.id)")
+            }
+        }
+    }
+
+    static func scheduleIncomingCallFallbackNotification(
+        _ payload: IncomingCallPayload,
+        after delay: TimeInterval = 0.1
+    ) {
+        let content = UNMutableNotificationContent()
+        content.title = payload.callerUsername
+        content.body = incomingCallBodyText(isVideo: payload.isVideoCall)
+        content.categoryIdentifier = incomingCallCategoryID
+        content.interruptionLevel = .timeSensitive
+        content.relevanceScore = 1
+        content.sound = callNotificationSound()
+        content.userInfo = [
+            syntheticCallNotificationKey: true,
+            "eventId": payload.id,
+            "callerId": payload.callerId,
+            "callerUsername": payload.callerUsername,
+            "callerAvatar": payload.callerAvatar as Any,
+            "callerSocketId": payload.callerSocketId as Any,
+            "callType": payload.callType
+        ]
+
+        let request = UNNotificationRequest(
+            identifier: callNotificationIdentifier(for: payload.id),
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(delay, 0.1), repeats: false)
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                print("[Push][Call] Failed to schedule fallback notification: \(error.localizedDescription)")
+            } else {
+                print("[Push][Call] Fallback notification scheduled: event=\(payload.id)")
+            }
+        }
+    }
+
+    static func cancelIncomingCallFallbackNotification(eventID: String) {
+        let identifier = callNotificationIdentifier(for: eventID)
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+    }
+
+    static func clearTransientNotifications() {
+        let callPrefix = callNotificationPrefix
+        let messagePrefix = messageNotificationPrefix
+        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+            let ids = notifications.map(\.request.identifier).filter {
+                $0.hasPrefix(callPrefix) || $0.hasPrefix(messagePrefix)
+            }
+            guard !ids.isEmpty else {
+                return
+            }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    private static func callNotificationIdentifier(for eventID: String) -> String {
+        "\(callNotificationPrefix)\(eventID)"
+    }
+
+    private static func callNotificationSound() -> UNNotificationSound {
+        guard let filename = VoxiiCallSound.ringtoneFilename else {
+            return .default
+        }
+        return UNNotificationSound(named: UNNotificationSoundName(rawValue: filename))
+    }
+
+    private static func incomingCallBodyText(isVideo: Bool) -> String {
+        let prefersRussian = {
+            if let stored = defaults.string(forKey: "voxii_language")?.lowercased(), !stored.isEmpty {
+                return stored == "ru"
+            }
+            let preferred = Locale.preferredLanguages.first?.lowercased() ?? ""
+            return preferred.hasPrefix("ru")
+        }()
+
+        if prefersRussian {
+            return isVideo ? "Входящий видеозвонок" : "Входящий звонок"
+        }
+        return isVideo ? "Incoming video call" : "Incoming call"
+    }
 }
 
 final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, PKPushRegistryDelegate {
     private var voipRegistry: PKPushRegistry?
-    private let syntheticMessageNotificationKey = "voxiiSyntheticMessageNotification"
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        VoxiiPushNotifications.registerNotificationCategories()
         configureVoIPPushes()
         return true
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        Task {
+            await VoxiiPushNotifications.requestAuthorizationAndRegisterIfNeeded()
+        }
+        VoxiiPushNotifications.clearTransientNotifications()
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -185,7 +344,7 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             return
         }
         if requestID.hasPrefix("voxii-foreground-message-")
-            || (userInfo[syntheticMessageNotificationKey] as? Bool) == true
+            || (userInfo["voxiiSyntheticMessageNotification"] as? Bool) == true
             || IncomingMessageNotificationPayload.fromRemoteNotification(userInfo: userInfo) != nil {
             completionHandler([])
             return
@@ -200,10 +359,17 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     ) {
         defer { completionHandler() }
         let userInfo = response.notification.request.content.userInfo
-        guard let payload = IncomingCallPayload.fromRemoteNotification(userInfo: userInfo) else {
+        if let payload = IncomingCallPayload.fromRemoteNotification(userInfo: userInfo) {
+            VoxiiPushNotifications.cancelIncomingCallFallbackNotification(eventID: payload.id)
+            VoxiiCallKitManager.shared.receiveAnsweredCallPayload(payload)
             return
         }
-        VoxiiCallKitManager.shared.receiveAnsweredCallPayload(payload)
+        if let payload = IncomingMessageNotificationPayload.fromRemoteNotification(userInfo: userInfo) {
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: ["voxii-message-\(payload.id)"]
+            )
+            return
+        }
     }
 
     func application(
@@ -214,6 +380,15 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if let payload = IncomingCallPayload.fromRemoteNotification(userInfo: userInfo) {
             print("[Push][Call] Remote call notification received: caller=\(payload.callerUsername)")
             VoxiiCallKitManager.shared.reportIncomingCall(payload)
+            if application.applicationState != .active {
+                VoxiiPushNotifications.scheduleIncomingCallFallbackNotification(payload)
+            }
+            Task {
+                await VoxiiLiveActivityManager.shared.reportIncomingCall(
+                    payload,
+                    preferAlertPresentation: true
+                )
+            }
             completionHandler(.newData)
             return
         }
@@ -224,7 +399,15 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                 "[Push][Message] Remote message notification received: id=\(messagePayload.id), hasAlert=\(hasVisibleAlert)"
             )
             if !hasVisibleAlert && application.applicationState != .active {
-                scheduleSyntheticMessageNotification(messagePayload)
+                VoxiiPushNotifications.scheduleBackgroundMessageNotification(messagePayload)
+            }
+            if application.applicationState != .active {
+                Task {
+                    await VoxiiLiveActivityManager.shared.presentIncomingMessage(
+                        messagePayload,
+                        preferAlertPresentation: true
+                    )
+                }
             }
             completionHandler(.newData)
             return
@@ -262,30 +445,14 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             return
         }
         VoxiiCallKitManager.shared.reportIncomingCall(callPayload)
-    }
-
-    private func scheduleSyntheticMessageNotification(_ payload: IncomingMessageNotificationPayload) {
-        let content = UNMutableNotificationContent()
-        content.title = payload.title
-        content.body = payload.body
-        content.sound = .default
-        content.userInfo = [
-            syntheticMessageNotificationKey: true,
-            "messageId": payload.id
-        ]
-
-        let request = UNNotificationRequest(
-            identifier: "voxii-message-\(payload.id)",
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.15, repeats: false)
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                print("[Push][Message] Failed to schedule local notification: \(error.localizedDescription)")
-            } else {
-                print("[Push][Message] Local fallback notification scheduled: id=\(payload.id)")
-            }
+        if UIApplication.shared.applicationState != .active {
+            VoxiiPushNotifications.scheduleIncomingCallFallbackNotification(callPayload)
+        }
+        Task {
+            await VoxiiLiveActivityManager.shared.reportIncomingCall(
+                callPayload,
+                preferAlertPresentation: true
+            )
         }
     }
 
@@ -345,10 +512,19 @@ final class VoxiiAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 @main
 struct VixiiApp: App {
     @UIApplicationDelegateAdaptor(VoxiiAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onChange(of: scenePhase) { _, newValue in
+                    guard newValue == .active else {
+                        return
+                    }
+                    Task {
+                        await VoxiiLiveActivityManager.shared.clearMessageActivities()
+                    }
+                }
         }
     }
 }

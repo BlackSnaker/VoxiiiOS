@@ -3,6 +3,14 @@ import CallKit
 import AVFoundation
 import UIKit
 
+private func voxiiPrefersRussianLanguage() -> Bool {
+    if let stored = UserDefaults.standard.string(forKey: "voxii_language")?.lowercased(), !stored.isEmpty {
+        return stored == "ru"
+    }
+    let preferred = Locale.preferredLanguages.first?.lowercased() ?? ""
+    return preferred.hasPrefix("ru")
+}
+
 extension Notification.Name {
     static let voxiiIncomingCallDidArrive = Notification.Name("voxiiIncomingCallDidArrive")
     static let voxiiIncomingCallAnswerRequested = Notification.Name("voxiiIncomingCallAnswerRequested")
@@ -221,6 +229,9 @@ struct IncomingMessageNotificationPayload: Identifiable, Hashable {
     let id: String
     let title: String
     let body: String
+    let senderID: Int?
+    let unreadCount: Int?
+    let conversationID: String?
 
     static func fromRemoteNotification(userInfo: [AnyHashable: Any]) -> IncomingMessageNotificationPayload? {
         let root = stringifyKeys(userInfo)
@@ -302,10 +313,48 @@ struct IncomingMessageNotificationPayload: Identifiable, Hashable {
                 root["id"]
             ) ?? "msg-\(Int(Date().timeIntervalSince1970 * 1000))"
 
+            let nestedSender = dictionary(from: candidate["sender"])
+            let nestedFrom = dictionary(from: candidate["from"])
+            let senderCandidate =
+                candidate["senderId"]
+                ?? candidate["sender_id"]
+                ?? candidate["fromUserId"]
+                ?? candidate["from_user_id"]
+                ?? nestedSender?["id"]
+                ?? nestedFrom?["id"]
+                ?? root["senderId"]
+                ?? root["sender_id"]
+            let senderID = parseIntIfPresent(senderCandidate)
+
+            let unreadCount = parseIntIfPresent(
+                candidate["unreadCount"]
+                    ?? candidate["unread_count"]
+                    ?? root["unreadCount"]
+                    ?? root["unread_count"]
+            )
+
+            let conversationID = firstNonEmptyString(
+                candidate["conversationId"],
+                candidate["conversation_id"],
+                candidate["chatId"],
+                candidate["chat_id"],
+                candidate["dmId"],
+                candidate["dm_id"],
+                root["conversationId"],
+                root["conversation_id"],
+                root["chatId"],
+                root["chat_id"],
+                root["dmId"],
+                root["dm_id"]
+            )
+
             return IncomingMessageNotificationPayload(
                 id: messageId,
                 title: title,
-                body: body ?? "You have a new message"
+                body: body ?? "You have a new message",
+                senderID: senderID,
+                unreadCount: unreadCount,
+                conversationID: conversationID
             )
         }
 
@@ -337,6 +386,23 @@ struct IncomingMessageNotificationPayload: Identifiable, Hashable {
                     return trimmed
                 }
             }
+        }
+        return nil
+    }
+
+    private static func parseIntIfPresent(_ value: Any?) -> Int? {
+        if let intValue = value as? Int {
+            return intValue
+        }
+        if let doubleValue = value as? Double {
+            return Int(doubleValue)
+        }
+        if let stringValue = value as? String {
+            let trimmed = stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return nil
+            }
+            return Int(trimmed)
         }
         return nil
     }
@@ -388,11 +454,16 @@ final class VoxiiCallKitManager: NSObject, CXProviderDelegate {
 
         if let existingUUID = uuidByEventID[payload.id] {
             payloadByUUID[existingUUID] = payload
+            Task {
+                await VoxiiLiveActivityManager.shared.reportIncomingCall(payload)
+            }
             notifyIncoming(payload)
             return
         }
 
         let uuid = UUID()
+        uuidByEventID[payload.id] = uuid
+        payloadByUUID[uuid] = payload
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: payload.callerUsername)
         update.localizedCallerName = payload.callerUsername
@@ -406,26 +477,56 @@ final class VoxiiCallKitManager: NSObject, CXProviderDelegate {
             guard let self else { return }
             if let error {
                 print("[CallKit] reportNewIncomingCall failed: \(error.localizedDescription)")
+                self.uuidByEventID.removeValue(forKey: payload.id)
+                self.payloadByUUID.removeValue(forKey: uuid)
+                Task {
+                    await VoxiiLiveActivityManager.shared.reportIncomingCall(payload)
+                }
                 self.notifyIncoming(payload)
                 return
             }
-            self.uuidByEventID[payload.id] = uuid
-            self.payloadByUUID[uuid] = payload
+            Task {
+                await VoxiiLiveActivityManager.shared.reportIncomingCall(payload)
+            }
             self.notifyIncoming(payload)
         }
     }
 
     func receiveAnsweredCallPayload(_ payload: IncomingCallPayload) {
         pendingAnswerPayload = payload
+        Task { @MainActor in
+            VoxiiPushNotifications.cancelIncomingCallFallbackNotification(eventID: payload.id)
+        }
+        Task {
+            await VoxiiLiveActivityManager.shared.updateCall(
+                eventID: payload.id,
+                peerName: payload.callerUsername,
+                avatarText: payload.callerAvatar ?? payload.callerUsername,
+                isVideo: payload.isVideoCall,
+                phase: .connecting,
+                statusText: voxiiPrefersRussianLanguage()
+                    ? (payload.isVideoCall ? "Подключаем видеозвонок" : "Подключаем звонок")
+                    : (payload.isVideoCall ? "Connecting video call" : "Connecting call")
+            )
+        }
         NotificationCenter.default.post(name: .voxiiIncomingCallAnswerRequested, object: payload)
     }
 
     func endCall(eventID: String, reason: CXCallEndedReason = .remoteEnded) {
+        Task { @MainActor in
+            VoxiiPushNotifications.cancelIncomingCallFallbackNotification(eventID: eventID)
+        }
         guard let uuid = uuidByEventID[eventID] else {
+            Task {
+                await VoxiiLiveActivityManager.shared.endCall(eventID: eventID)
+            }
             return
         }
         provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
         clearCall(uuid: uuid)
+        Task {
+            await VoxiiLiveActivityManager.shared.endCall(eventID: eventID)
+        }
     }
 
     func consumePendingIncomingPayload() -> IncomingCallPayload? {
@@ -472,12 +573,21 @@ final class VoxiiCallKitManager: NSObject, CXProviderDelegate {
     private func clearCall(uuid: UUID) {
         if let payload = payloadByUUID.removeValue(forKey: uuid) {
             uuidByEventID[payload.id] = nil
+            Task { @MainActor in
+                VoxiiPushNotifications.cancelIncomingCallFallbackNotification(eventID: payload.id)
+            }
         }
     }
 
     func providerDidReset(_ provider: CXProvider) {
+        let eventIDs = payloadByUUID.values.map(\.id)
         payloadByUUID.removeAll()
         uuidByEventID.removeAll()
+        for eventID in eventIDs {
+            Task {
+                await VoxiiLiveActivityManager.shared.endCall(eventID: eventID)
+            }
+        }
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {

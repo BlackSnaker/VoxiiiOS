@@ -10,10 +10,10 @@ enum VoxiiCallSound {
     }
 
     static var bundledRingtoneURL: URL? {
-        bundledRingtoneURL(for: selectedRingtone)
+        bundledRingtoneURL(forPreset: selectedRingtone)
     }
 
-    static func bundledRingtoneURL(for preset: VoxiiCallRingtonePreset) -> URL? {
+    static func bundledRingtoneURL(forPreset preset: VoxiiCallRingtonePreset) -> URL? {
         guard let filename = preset.filename else {
             return nil
         }

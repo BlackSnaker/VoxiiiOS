@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 final class SessionStore: ObservableObject {
@@ -29,6 +30,7 @@ final class SessionStore: ObservableObject {
             currentUser = user
         }
         bindPushTokenUpdates()
+        bindApplicationLifecycle()
 
         if let savedURL = defaults.string(forKey: serverURLKey),
            let normalized = VoxiiURLBuilder.normalizeBaseURL(savedURL)?.absoluteString {
@@ -490,6 +492,7 @@ final class SessionStore: ObservableObject {
         currentUser = user
         defaults.set(token, forKey: tokenKey)
         defaults.set(try? JSONEncoder().encode(user), forKey: currentUserKey)
+        VoxiiWidgetSnapshotManager.saveSignedInUser(user)
     }
 
     private func clearSession() {
@@ -499,6 +502,7 @@ final class SessionStore: ObservableObject {
         clearPushSyncMarkers()
         defaults.removeObject(forKey: tokenKey)
         defaults.removeObject(forKey: currentUserKey)
+        VoxiiWidgetSnapshotManager.clearAll()
     }
 
     private func bindPushTokenUpdates() {
@@ -510,6 +514,17 @@ final class SessionStore: ObservableObject {
                 let provider = (notification.object as? [String: String])?["provider"] ?? "apns"
                 self.defaults.removeObject(forKey: self.pushSyncMarkerKey(for: provider))
                 Task { await self.syncPushTokenIfNeeded(force: true) }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func bindApplicationLifecycle() {
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard let self, self.isAuthenticated else {
+                    return
+                }
+                Task { await self.configurePushNotifications() }
             }
             .store(in: &cancellables)
     }

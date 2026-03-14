@@ -168,6 +168,7 @@ struct ChatView: View {
     @State private var voiceRecordingURL: URL?
     @State private var isRecordingVoice = false
     @State private var isVideoCallPresented = false
+    @State private var outgoingCallEventID = UUID().uuidString
 
     @State private var isSending = false
     @State private var isSyncing = false
@@ -238,6 +239,7 @@ struct ChatView: View {
                     token: session.token ?? "",
                     selfUser: session.currentUser,
                     peer: peer,
+                    eventID: outgoingCallEventID,
                     callType: "video",
                     mode: .outgoing
                 )
@@ -274,6 +276,7 @@ struct ChatView: View {
             Spacer()
 
             Button {
+                outgoingCallEventID = UUID().uuidString
                 isVideoCallPresented = true
             } label: {
                 Image(systemName: "video.fill")
@@ -2825,6 +2828,7 @@ struct VideoCallConfig {
     let token: String
     let selfUser: APIUser?
     let peer: APIUser
+    let eventID: String
     let callType: String
     let mode: VideoCallMode
     let initialIncomingSocketId: String?
@@ -2838,6 +2842,7 @@ struct VideoCallConfig {
         token: String,
         selfUser: APIUser?,
         peer: APIUser,
+        eventID: String,
         callType: String,
         mode: VideoCallMode,
         initialIncomingSocketId: String? = nil,
@@ -2850,6 +2855,7 @@ struct VideoCallConfig {
         self.token = token
         self.selfUser = selfUser
         self.peer = peer
+        self.eventID = eventID
         self.callType = callType
         self.mode = mode
         self.initialIncomingSocketId = initialIncomingSocketId
@@ -3400,7 +3406,7 @@ final class VoxiiRingtonePlayer {
     }
 
     private static func ringtoneFileURL(for preset: VoxiiCallRingtonePreset) throws -> URL {
-        if let bundledURL = VoxiiCallSound.bundledRingtoneURL(for: preset) {
+        if let bundledURL = VoxiiCallSound.bundledRingtoneURL(forPreset: preset) {
             return bundledURL
         }
 
@@ -3652,6 +3658,7 @@ struct VideoCallView: View {
     @StateObject private var controller = VideoCallController()
     @State private var isAcceptingIncoming = false
     @State private var didAutoAcceptIncoming = false
+    @State private var connectedSince: Date?
     
     private var isAudioOnlyCall: Bool {
         config.callType.lowercased() == "audio"
@@ -3688,21 +3695,37 @@ struct VideoCallView: View {
             }
             syncRingtone(for: controller.state)
             attemptAutoAcceptIncomingIfNeeded(for: controller.state)
+            primeLiveActivity()
         }
         .onDisappear {
             VoxiiRingtonePlayer.shared.stopIfNeeded()
             controller.endCall()
             deactivateCallAudioSession()
+            Task {
+                await VoxiiLiveActivityManager.shared.endCall(
+                    eventID: config.eventID,
+                    finalStatus: controller.statusText
+                )
+            }
         }
         .onChange(of: controller.state) { _, newValue in
+            if newValue == .connected, connectedSince == nil {
+                connectedSince = Date()
+            } else if newValue != .connected && newValue != .ended {
+                connectedSince = nil
+            }
             syncRingtone(for: newValue)
             attemptAutoAcceptIncomingIfNeeded(for: newValue)
+            syncLiveActivity(for: newValue)
             if newValue == .ended {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                     onClose()
                     dismiss()
                 }
             }
+        }
+        .onChange(of: controller.statusText) { _, _ in
+            syncLiveActivity(for: controller.state)
         }
         .alert(appearance.t("call.errorTitle"), isPresented: Binding(
             get: { controller.errorMessage != nil },
@@ -3717,6 +3740,81 @@ struct VideoCallView: View {
             }
         } message: {
             Text(controller.errorMessage ?? appearance.t("common.unknownError"))
+        }
+    }
+
+    private func primeLiveActivity() {
+        Task {
+            if config.mode == .outgoing {
+                await VoxiiLiveActivityManager.shared.reportOutgoingCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall
+                )
+            } else {
+                await VoxiiLiveActivityManager.shared.updateCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall,
+                    phase: .incoming,
+                    statusText: controller.statusText
+                )
+            }
+        }
+    }
+
+    private func syncLiveActivity(for state: VideoCallState) {
+        Task {
+            switch state {
+            case .incoming:
+                await VoxiiLiveActivityManager.shared.updateCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall,
+                    phase: .incoming,
+                    statusText: controller.statusText
+                )
+            case .calling:
+                await VoxiiLiveActivityManager.shared.updateCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall,
+                    phase: .calling,
+                    statusText: controller.statusText
+                )
+            case .connecting:
+                await VoxiiLiveActivityManager.shared.updateCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall,
+                    phase: .connecting,
+                    statusText: controller.statusText
+                )
+            case .connected:
+                let startedAt = connectedSince ?? Date()
+                await VoxiiLiveActivityManager.shared.updateCall(
+                    eventID: config.eventID,
+                    peerName: config.peer.username,
+                    avatarText: config.peer.avatar ?? config.peer.username,
+                    isVideo: !isAudioOnlyCall,
+                    phase: .connected,
+                    statusText: controller.statusText,
+                    connectedSince: startedAt
+                )
+            case .ended:
+                let finalPhase: VoxiiCallActivityAttributes.Phase =
+                    config.mode == .incoming && connectedSince == nil ? .missed : .ended
+                await VoxiiLiveActivityManager.shared.endCall(
+                    eventID: config.eventID,
+                    finalStatus: controller.statusText,
+                    finalPhase: finalPhase
+                )
+            }
         }
     }
 

@@ -10,11 +10,22 @@ private func voxiiPrefersRussianLanguage() -> Bool {
     return preferred.hasPrefix("ru")
 }
 
+private extension View {
+    func voxiiTabNavigationInset() -> some View {
+        safeAreaInset(edge: .bottom) {
+            Color.clear
+                .frame(height: 10)
+        }
+    }
+}
+
 struct MessengerHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var appearance: VoxiiAppearance
+    @EnvironmentObject private var router: VoxiiAppRouter
     @State private var selectedTab: HomeTab = .messages
+    @State private var pendingChatUserID: Int?
     @State private var incomingCall: IncomingCallPayload?
     @State private var callIDsAnsweredBySystem: Set<String> = []
     @State private var notifiedMessageNotificationIDs: Set<Int> = []
@@ -34,7 +45,7 @@ struct MessengerHomeView: View {
     var body: some View {
         ZStack {
             TabView(selection: $selectedTab) {
-                DMInboxView()
+                DMInboxView(pendingChatUserID: $pendingChatUserID)
                     .environmentObject(session)
                     .tabItem {
                         Label(appearance.t("tab.messages"), systemImage: "message.fill")
@@ -85,6 +96,9 @@ struct MessengerHomeView: View {
             }
         }
         .task {
+            applyPendingRouteIfNeeded()
+        }
+        .task {
             if let pendingAnswered = VoxiiCallKitManager.shared.consumePendingAnswerPayload() {
                 callIDsAnsweredBySystem.insert(pendingAnswered.id)
                 incomingCall = pendingAnswered
@@ -111,6 +125,10 @@ struct MessengerHomeView: View {
             callIDsAnsweredBySystem.insert(payload.id)
             incomingCall = payload
         }
+        .onReceive(router.$route.compactMap { $0 }) { route in
+            apply(route)
+            _ = router.consumeRoute()
+        }
         .onReceive(messageNotificationRefreshTimer) { _ in
             guard scenePhase == .active else {
                 return
@@ -133,6 +151,7 @@ struct MessengerHomeView: View {
                         avatar: payload.callerAvatar,
                         status: "online"
                     ),
+                    eventID: payload.id,
                     callType: payload.callType,
                     mode: .incoming,
                     initialIncomingSocketId: payload.callerSocketId,
@@ -147,6 +166,33 @@ struct MessengerHomeView: View {
                 incomingCall = nil
             }
             .environmentObject(appearance)
+        }
+    }
+
+    private func applyPendingRouteIfNeeded() {
+        guard let route = router.consumeRoute() else {
+            return
+        }
+        apply(route)
+    }
+
+    private func apply(_ route: VoxiiAppRouter.Route) {
+        switch route {
+        case .messages:
+            selectedTab = .messages
+        case let .chat(userID):
+            selectedTab = .messages
+            pendingChatUserID = userID
+        case .friends:
+            selectedTab = .friends
+        case .news:
+            selectedTab = .news
+        case .notifications:
+            selectedTab = .notifications
+        case .settings:
+            selectedTab = .settings
+        case .call:
+            selectedTab = .messages
         }
     }
 
@@ -268,28 +314,44 @@ private struct DMInboxView: View {
     @EnvironmentObject private var session: SessionStore
     @EnvironmentObject private var appearance: VoxiiAppearance
 
+    @State private var selectedFilter: DMInboxFilter = .all
+    @Binding private var pendingChatUserID: Int?
     @State private var users: [APIUser] = []
     @State private var friendIDs: Set<Int> = []
     @State private var unreadByUser: [Int: Int] = [:]
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var navigationTarget: APIUser?
+
+    init(pendingChatUserID: Binding<Int?> = .constant(nil)) {
+        _pendingChatUserID = pendingChatUserID
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 VoxiiBackground()
 
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     header
                     search
                     content
                 }
-                .padding(14)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 await loadData()
+            }
+            .onChange(of: pendingChatUserID) { _, userID in
+                openPendingChatIfPossible(userID)
+            }
+            .navigationDestination(item: $navigationTarget) { user in
+                ChatView(peer: user)
+                    .environmentObject(session)
             }
             .alert(appearance.t("common.error"), isPresented: errorBinding) {
                 Button(appearance.t("common.ok"), role: .cancel) {
@@ -302,59 +364,171 @@ private struct DMInboxView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VoxiiAvatarView(
-                text: session.currentUser?.username ?? "V",
-                isOnline: true,
-                size: 42
-            )
+        VStack(alignment: .leading, spacing: 10) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    headerIdentity
+                    Spacer(minLength: 0)
+                    headerRefreshButton
+                }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(appearance.t("dm.title"))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.text)
-                Text("Voxii")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(VoxiiTheme.muted)
+                VStack(alignment: .leading, spacing: 10) {
+                    headerIdentity
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        headerRefreshButton
+                    }
+                }
             }
 
-            Spacer()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    headerStatePill
 
-            Button {
-                Task { await loadData() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .bold))
+                    Spacer(minLength: 0)
+
+                    dmMetricMiniChip(
+                        icon: "bubble.left.and.bubble.right.fill",
+                        value: totalUnreadCount,
+                        tint: VoxiiTheme.accent
+                    )
+                    dmMetricMiniChip(
+                        icon: "dot.radiowaves.left.and.right",
+                        value: onlineUsersCount,
+                        tint: VoxiiTheme.online
+                    )
+                    dmMetricMiniChip(
+                        icon: "person.2.fill",
+                        value: friendIDs.count,
+                        tint: VoxiiTheme.accentBlue
+                    )
+                }
+
+                VStack(spacing: 8) {
+                    headerStatePill
+
+                    HStack(spacing: 8) {
+                        dmMetricMiniChip(
+                            icon: "bubble.left.and.bubble.right.fill",
+                            value: totalUnreadCount,
+                            tint: VoxiiTheme.accent
+                        )
+                        dmMetricMiniChip(
+                            icon: "dot.radiowaves.left.and.right",
+                            value: onlineUsersCount,
+                            tint: VoxiiTheme.online
+                        )
+                        dmMetricMiniChip(
+                            icon: "person.2.fill",
+                            value: friendIDs.count,
+                            tint: VoxiiTheme.accentBlue
+                        )
+                    }
+                }
             }
-            .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
-            .disabled(isLoading)
         }
-        .voxiiCard(cornerRadius: 18, padding: 14)
+        .padding(12)
+        .background(InboxGlassPanel(cornerRadius: 22, accentOpacity: 0.08))
     }
 
     private var search: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(VoxiiTheme.muted)
-            TextField(appearance.t("dm.searchPlaceholder"), text: $searchText)
-                .foregroundStyle(VoxiiTheme.text)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(VoxiiTheme.muted)
+
+                TextField(appearance.t("dm.searchPlaceholder"), text: $searchText)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(VoxiiTheme.mutedSecondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.10),
+                                VoxiiTheme.glassStrong.opacity(0.58)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    searchSectionPill
+                    Spacer(minLength: 0)
+                    resultCountBadge
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    searchSectionPill
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        resultCountBadge
+                    }
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(DMInboxFilter.allCases) { filter in
+                        Button {
+                            selectedFilter = filter
+                        } label: {
+                            DMFilterChip(
+                                filter: filter,
+                                count: filteredCount(for: filter),
+                                isSelected: selectedFilter == filter,
+                                appearance: appearance
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
         }
-        .voxiiInput()
+        .padding(8)
+        .background(InboxGlassPanel(cornerRadius: 20, accentOpacity: 0.06))
     }
 
     private var content: some View {
         Group {
             if isLoading && users.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: 14) {
                     ProgressView()
                         .tint(VoxiiTheme.accent)
                     Text(appearance.t("dm.loading"))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(VoxiiTheme.muted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .voxiiCard(cornerRadius: 18, padding: 18)
+                .padding(22)
+                .background(InboxGlassPanel(cornerRadius: 24, accentOpacity: 0.06))
             } else if filteredUsers.isEmpty {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(VoxiiTheme.muted)
@@ -366,37 +540,57 @@ private struct DMInboxView: View {
                         .foregroundStyle(VoxiiTheme.muted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .voxiiCard(cornerRadius: 18, padding: 18)
+                .padding(22)
+                .background(InboxGlassPanel(cornerRadius: 24, accentOpacity: 0.06))
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(filteredUsers) { user in
-                            NavigationLink {
-                                ChatView(peer: user)
-                                    .environmentObject(session)
-                            } label: {
-                                DMContactRow(
-                                    user: user,
-                                    isFriend: friendIDs.contains(user.id),
-                                    unreadCount: unreadByUser[user.id] ?? 0
-                                )
+                ZStack(alignment: .top) {
+                    InboxGlassPanel(cornerRadius: 24, accentOpacity: 0.08)
+
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            dialogsSectionHeader
+
+                            LazyVStack(spacing: 10) {
+                                ForEach(filteredUsers) { user in
+                                    NavigationLink {
+                                        ChatView(peer: user)
+                                            .environmentObject(session)
+                                    } label: {
+                                        DMContactRow(
+                                            user: user,
+                                            isFriend: friendIDs.contains(user.id),
+                                            unreadCount: unreadByUser[user.id] ?? 0
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 14)
+                        .padding(.bottom, 0)
+                    }
+                    .refreshable {
+                        await loadData()
                     }
                 }
-                .refreshable {
-                    await loadData()
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var filteredUsers: [APIUser] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var baseSortedUsers: [APIUser] {
+        users.sorted { lhs, rhs in
+            let lhsUnread = unreadByUser[lhs.id] ?? 0
+            let rhsUnread = unreadByUser[rhs.id] ?? 0
+            if lhsUnread != rhsUnread {
+                return lhsUnread > rhsUnread
+            }
 
-        let sorted = users.sorted { lhs, rhs in
             let lhsFriend = friendIDs.contains(lhs.id)
             let rhsFriend = friendIDs.contains(rhs.id)
             if lhsFriend != rhsFriend {
@@ -411,14 +605,50 @@ private struct DMInboxView: View {
 
             return lhs.username.localizedCaseInsensitiveCompare(rhs.username) == .orderedAscending
         }
+    }
 
+    private var searchScopedUsers: [APIUser] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return sorted
+            return baseSortedUsers
         }
 
-        return sorted.filter { user in
+        return baseSortedUsers.filter { user in
             user.username.localizedCaseInsensitiveContains(trimmed) ||
             (user.email?.localizedCaseInsensitiveContains(trimmed) ?? false)
+        }
+    }
+
+    private var filteredUsers: [APIUser] {
+        searchScopedUsers.filter { user in
+            matchesFilter(user, filter: selectedFilter)
+        }
+    }
+
+    private var totalUnreadCount: Int {
+        unreadByUser.values.reduce(0, +)
+    }
+
+    private var onlineUsersCount: Int {
+        users.filter { $0.status?.lowercased() == "online" }.count
+    }
+
+    private func filteredCount(for filter: DMInboxFilter) -> Int {
+        searchScopedUsers.filter { user in
+            matchesFilter(user, filter: filter)
+        }.count
+    }
+
+    private func matchesFilter(_ user: APIUser, filter: DMInboxFilter) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .unread:
+            return (unreadByUser[user.id] ?? 0) > 0
+        case .friends:
+            return friendIDs.contains(user.id)
+        case .online:
+            return user.status?.lowercased() == "online"
         }
     }
 
@@ -445,7 +675,8 @@ private struct DMInboxView: View {
             let (allUsers, friends, unread) = try await (usersTask, friendsTask, unreadTask)
 
             users = allUsers
-            friendIDs = Set(friends.map(\.id))
+            let friendIDsSet = Set(friends.map(\.id))
+            friendIDs = friendIDsSet
 
             var unreadMap: [Int: Int] = [:]
             for item in unread.notifications where item.type == "message" {
@@ -455,10 +686,393 @@ private struct DMInboxView: View {
                 unreadMap[fromUserId, default: 0] += 1
             }
             unreadByUser = unreadMap
+            VoxiiWidgetSnapshotManager.publishInbox(
+                users: allUsers,
+                friendIDs: friendIDsSet,
+                unreadByUser: unreadMap,
+                currentUser: session.currentUser
+            )
+            openPendingChatIfPossible(pendingChatUserID)
             errorMessage = nil
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    private func openPendingChatIfPossible(_ userID: Int?) {
+        guard let userID,
+              let user = users.first(where: { $0.id == userID }) else {
+            return
+        }
+        navigationTarget = user
+        pendingChatUserID = nil
+    }
+
+    private var headerIdentity: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                VoxiiTheme.accent.opacity(0.15),
+                                VoxiiTheme.glassStrong.opacity(0.70),
+                                Color.black.opacity(0.14)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+
+                VoxiiAvatarView(
+                    text: session.currentUser?.username ?? "V",
+                    isOnline: true,
+                    size: 38
+                )
+            }
+            .frame(width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(appearance.t("dm.title"))
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+
+                Text(appearance.t("dm.subtitle"))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var headerRefreshButton: some View {
+        Button {
+            Task { await loadData() }
+        } label: {
+            ZStack {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 14, weight: .bold))
+                    .opacity(isLoading ? 0 : 1)
+
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                }
+            }
+        }
+        .buttonStyle(VoxiiRoundButtonStyle(diameter: 36, variant: .neutral))
+        .disabled(isLoading)
+    }
+
+    private var headerStatePill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: selectedFilter == .all ? "tray.full.fill" : "line.3.horizontal.decrease.circle.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(VoxiiTheme.accentLight)
+
+            Text(
+                searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFilter == .all
+                ? appearance.t("dm.section.active")
+                : appearance.t("dm.section.filtered")
+            )
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(VoxiiTheme.text)
+            .lineLimit(1)
+
+            Text("\(filteredUsers.count)")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(VoxiiTheme.accentGradient)
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var searchSectionPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(VoxiiTheme.accentLight)
+
+            Text(
+                searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? appearance.t("dm.section.active")
+                : appearance.t("dm.section.filtered")
+            )
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(VoxiiTheme.text)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var resultCountBadge: some View {
+        Text("\(filteredUsers.count)")
+            .font(.system(size: 11, weight: .black, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(VoxiiTheme.accentGradient)
+            )
+    }
+
+    private var dialogsSectionHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            VoxiiTheme.accent.opacity(0.20),
+                                            VoxiiTheme.glassStrong.opacity(0.62)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 38, height: 38)
+
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .frame(width: 38, height: 38)
+
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(VoxiiTheme.accentLight)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFilter == .all
+                                 ? appearance.t("dm.section.active")
+                                 : appearance.t("dm.section.filtered"))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(VoxiiTheme.text)
+
+                            Text(
+                                totalUnreadCount > 0
+                                ? appearance.tf("notifications.unreadCount", totalUnreadCount)
+                                : appearance.t("notifications.allCaughtUp")
+                            )
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(VoxiiTheme.muted)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                    resultCountBadge
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            VoxiiTheme.accent.opacity(0.20),
+                                            VoxiiTheme.glassStrong.opacity(0.62)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 38, height: 38)
+
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .frame(width: 38, height: 38)
+
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(VoxiiTheme.accentLight)
+                        }
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedFilter == .all
+                                 ? appearance.t("dm.section.active")
+                                 : appearance.t("dm.section.filtered"))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(VoxiiTheme.text)
+
+                            Text(
+                                totalUnreadCount > 0
+                                ? appearance.tf("notifications.unreadCount", totalUnreadCount)
+                                : appearance.t("notifications.allCaughtUp")
+                            )
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(VoxiiTheme.muted)
+                        }
+                    }
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        resultCountBadge
+                    }
+                }
+            }
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    dialogsInfoPill(
+                        icon: "arrow.down.message.fill",
+                        text: totalUnreadCount > 0
+                        ? appearance.tf("notifications.unreadCount", totalUnreadCount)
+                        : appearance.t("notifications.allCaughtUp"),
+                        tint: totalUnreadCount > 0 ? VoxiiTheme.accent : VoxiiTheme.mutedSecondary
+                    )
+
+                    dialogsInfoPill(
+                        icon: "dot.radiowaves.left.and.right",
+                        text: "\(onlineUsersCount) \(appearance.t("dm.metric.online"))",
+                        tint: VoxiiTheme.online
+                    )
+
+                    if selectedFilter != .all || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        dialogsInfoPill(
+                            icon: selectedFilter == .all ? "magnifyingglass" : selectedFilter.symbol,
+                            text: selectedFilter == .all ? appearance.t("dm.searchPlaceholder") : selectedFilter.title(appearance),
+                            tint: selectedFilter == .all ? VoxiiTheme.accentLight : selectedFilter.tint
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        dialogsInfoPill(
+                            icon: "arrow.down.message.fill",
+                            text: totalUnreadCount > 0
+                            ? appearance.tf("notifications.unreadCount", totalUnreadCount)
+                            : appearance.t("notifications.allCaughtUp"),
+                            tint: totalUnreadCount > 0 ? VoxiiTheme.accent : VoxiiTheme.mutedSecondary
+                        )
+
+                        dialogsInfoPill(
+                            icon: "dot.radiowaves.left.and.right",
+                            text: "\(onlineUsersCount) \(appearance.t("dm.metric.online"))",
+                            tint: VoxiiTheme.online
+                        )
+                    }
+
+                    if selectedFilter != .all || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        dialogsInfoPill(
+                            icon: selectedFilter == .all ? "magnifyingglass" : selectedFilter.symbol,
+                            text: selectedFilter == .all ? appearance.t("dm.searchPlaceholder") : selectedFilter.title(appearance),
+                            tint: selectedFilter == .all ? VoxiiTheme.accentLight : selectedFilter.tint
+                        )
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.08),
+                            VoxiiTheme.glassStrong.opacity(0.34),
+                            Color.black.opacity(0.06)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private func dialogsInfoPill(icon: String, text: String, tint: Color) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(tint)
+
+            Text(text)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func dmMetricMiniChip(icon: String, value: Int, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 22, height: 22)
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(tint)
+            }
+
+            Text("\(value)")
+                .font(.system(size: 12, weight: .black, design: .rounded))
+                .foregroundStyle(VoxiiTheme.text)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.07),
+                            VoxiiTheme.glass.opacity(0.28)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 
@@ -470,67 +1084,358 @@ private struct DMContactRow: View {
     let unreadCount: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            VoxiiAvatarView(
-                text: user.avatar ?? user.username,
-                isOnline: user.status?.lowercased() == "online",
-                size: 44
-            )
+        HStack(alignment: .center, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                unreadCount > 0 ? VoxiiTheme.accent.opacity(0.24) : Color.white.opacity(0.10),
+                                VoxiiTheme.glassStrong.opacity(0.74)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 56, height: 56)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(user.username)
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                        .foregroundStyle(VoxiiTheme.text)
+                Circle()
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .frame(width: 56, height: 56)
 
-                    if isFriend {
-                        Text(appearance.t("common.friend"))
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(
-                                Capsule()
-                                    .fill(VoxiiTheme.accent.opacity(0.28))
-                            )
-                            .foregroundStyle(.white)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Text(appearance.statusLabel(user.status))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(user.status?.lowercased() == "online" ? VoxiiTheme.online : VoxiiTheme.muted)
-
-                    if let email = user.email, !email.isEmpty {
-                        Text("•")
-                            .foregroundStyle(VoxiiTheme.mutedSecondary)
-                        Text(email)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(VoxiiTheme.muted)
-                            .lineLimit(1)
-                    }
-                }
+                VoxiiAvatarView(
+                    text: user.avatar ?? user.username,
+                    isOnline: false,
+                    size: 48
+                )
             }
-
-            Spacer()
-
-            if unreadCount > 0 {
-                Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(VoxiiTheme.accentGradient)
+            .overlay(alignment: .bottomTrailing) {
+                Circle()
+                    .fill(isOnline ? VoxiiTheme.online : VoxiiTheme.mutedSecondary)
+                    .frame(width: 10, height: 10)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.black.opacity(0.28), lineWidth: 2)
                     )
             }
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(VoxiiTheme.mutedSecondary)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.username)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(VoxiiTheme.text)
+                            .lineLimit(1)
+
+                        Text(detailText)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(VoxiiTheme.muted)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 6)
+
+                    if unreadCount > 0 {
+                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                            .font(.system(size: 10, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(VoxiiTheme.accentGradient)
+                            )
+                    }
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        statusChips
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            primaryStatusChip
+
+                            if isFriend {
+                                friendChip
+                            }
+                        }
+
+                        if unreadCount > 0 {
+                            unreadInfoPill
+                        }
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(VoxiiTheme.mutedSecondary)
+
+                    Text(appearance.t("dm.row.open"))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(VoxiiTheme.mutedSecondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .frame(width: 30, height: 30)
+                .overlay(
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(VoxiiTheme.mutedSecondary)
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
         }
-        .voxiiCard(cornerRadius: 14, padding: 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .background(
+            InboxGlassPanel(
+                cornerRadius: 24,
+                accentOpacity: unreadCount > 0 ? 0.16 : (isOnline ? 0.11 : 0.06)
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(unreadCount > 0 ? 0.18 : 0.12),
+                            Color.white.opacity(0.03)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(
+                    unreadCount > 0
+                    ? VoxiiTheme.accent
+                    : (isOnline ? VoxiiTheme.online.opacity(0.8) : Color.white.opacity(0.08))
+                )
+                .frame(width: 4, height: 38)
+                .padding(.leading, 9)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 6)
+    }
+
+    private var isOnline: Bool {
+        user.status?.lowercased() == "online"
+    }
+
+    private var detailText: String {
+        if let email = user.email, !email.isEmpty {
+            return email
+        }
+        return appearance.statusLabel(user.status)
+    }
+
+    @ViewBuilder
+    private var statusChips: some View {
+        primaryStatusChip
+
+        if isFriend {
+            friendChip
+        }
+
+        if unreadCount > 0 {
+            unreadInfoPill
+        }
+    }
+
+    private var primaryStatusChip: some View {
+        labelChip(
+            text: appearance.statusLabel(user.status),
+            icon: isOnline ? "dot.radiowaves.left.and.right" : "moon.zzz.fill",
+            tint: isOnline ? VoxiiTheme.online : VoxiiTheme.mutedSecondary
+        )
+    }
+
+    private var friendChip: some View {
+        labelChip(
+            text: appearance.t("common.friend"),
+            icon: "person.2.fill",
+            tint: VoxiiTheme.accent
+        )
+    }
+
+    private var unreadInfoPill: some View {
+        labelChip(
+            text: appearance.tf("notifications.unreadCount", unreadCount),
+            icon: "bell.badge.fill",
+            tint: VoxiiTheme.accent
+        )
+    }
+
+    @ViewBuilder
+    private func labelChip(text: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .bold))
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.system(size: 9, weight: .bold, design: .rounded))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            Capsule()
+                .fill(tint.opacity(0.24))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+}
+
+private struct DMFilterChip: View {
+    let filter: DMInboxFilter
+    let count: Int
+    let isSelected: Bool
+    let appearance: VoxiiAppearance
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: filter.symbol)
+                .font(.system(size: 11, weight: .bold))
+
+            Text(filter.title(appearance))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+
+            if count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .foregroundStyle(isSelected ? filter.tint : .white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(isSelected ? Color.white.opacity(0.92) : Color.white.opacity(0.10))
+                    )
+            }
+        }
+        .foregroundStyle(isSelected ? .white : VoxiiTheme.text)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(filterBackground)
+    }
+
+    @ViewBuilder
+    private var filterBackground: some View {
+        Capsule()
+            .fill(
+                isSelected
+                ? AnyShapeStyle(
+                    LinearGradient(
+                        colors: [filter.tint.opacity(0.94), filter.tint.opacity(0.56)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                : AnyShapeStyle(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.08),
+                            VoxiiTheme.glass.opacity(0.40)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.white.opacity(isSelected ? 0.14 : 0.08), lineWidth: 1)
+            )
+    }
+}
+
+private struct InboxGlassPanel: View {
+    let cornerRadius: CGFloat
+    let accentOpacity: Double
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.10),
+                                VoxiiTheme.accent.opacity(accentOpacity),
+                                VoxiiTheme.glassStrong.opacity(0.66),
+                                Color.black.opacity(0.08)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+    }
+}
+
+private enum DMInboxFilter: CaseIterable, Identifiable {
+    case all
+    case unread
+    case friends
+    case online
+
+    var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .all:
+            return "square.grid.2x2.fill"
+        case .unread:
+            return "bubble.left.and.bubble.right.fill"
+        case .friends:
+            return "person.2.fill"
+        case .online:
+            return "dot.radiowaves.left.and.right"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .all:
+            return VoxiiTheme.accentBlue
+        case .unread:
+            return VoxiiTheme.accent
+        case .friends:
+            return VoxiiTheme.accentLight
+        case .online:
+            return VoxiiTheme.online
+        }
+    }
+
+    func title(_ appearance: VoxiiAppearance) -> String {
+        switch self {
+        case .all:
+            return appearance.t("dm.filter.all")
+        case .unread:
+            return appearance.t("dm.filter.unread")
+        case .friends:
+            return appearance.t("dm.filter.friends")
+        case .online:
+            return appearance.t("dm.filter.online")
+        }
     }
 }
 
@@ -568,6 +1473,7 @@ private struct FriendsHubView: View {
                 }
                 .padding(16)
             }
+            .voxiiTabNavigationInset()
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 await loadData()
@@ -1254,6 +2160,7 @@ private struct NewsChannelView: View {
                 }
                 .padding(14)
             }
+            .voxiiTabNavigationInset()
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 await loadData()
@@ -2117,6 +3024,7 @@ private struct NotificationsCenterView: View {
                 }
                 .padding(14)
             }
+            .voxiiTabNavigationInset()
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 await loadData(markReadOnOpen: true)
@@ -2435,6 +3343,11 @@ private struct SettingsHomeView: View {
     @EnvironmentObject private var appearance: VoxiiAppearance
 
     @State private var isServerSettingsPresented = false
+    @State private var liveActivityTestStatus: String?
+    @State private var liveActivityStatusResetTask: Task<Void, Never>?
+    @State private var messageLiveActivityTestTask: Task<Void, Never>?
+    @State private var callLiveActivityTestTask: Task<Void, Never>?
+    @State private var activeCallLiveActivityTestEventID: String?
 
     var body: some View {
         NavigationStack {
@@ -2447,6 +3360,7 @@ private struct SettingsHomeView: View {
                         profileCard
                         appearanceSection
                         soundSection
+                        liveActivitySection
                         privacySection
                         serverSection
                         accountSection
@@ -2454,6 +3368,7 @@ private struct SettingsHomeView: View {
                     .padding(14)
                 }
             }
+            .voxiiTabNavigationInset()
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $isServerSettingsPresented) {
                 ServerSettingsView(initialURL: session.serverURL) { newValue in
@@ -2517,6 +3432,17 @@ private struct SettingsHomeView: View {
                 symbol: "network"
             )
             serverCard
+        }
+    }
+
+    private var liveActivitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                title: appearance.t("settings.liveActivities"),
+                subtitle: appearance.t("settings.liveActivitiesSubtitle"),
+                symbol: "pill.fill"
+            )
+            liveActivityCard
         }
     }
 
@@ -2806,6 +3732,95 @@ private struct SettingsHomeView: View {
         .voxiiCard(cornerRadius: 18, padding: 16)
     }
 
+    private var liveActivityCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                settingsBadge(
+                    text: VoxiiLiveActivityManager.shared.canPresentLiveActivities
+                        ? appearance.t("settings.liveActivitiesAvailable")
+                        : appearance.t("settings.liveActivitiesUnavailable"),
+                    symbol: VoxiiLiveActivityManager.shared.canPresentLiveActivities ? "checkmark.seal.fill" : "exclamationmark.triangle.fill"
+                )
+
+                Spacer(minLength: 0)
+
+                Text(appearance.t("settings.liveActivitiesDelay"))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+            }
+
+            if let liveActivityTestStatus, !liveActivityTestStatus.isEmpty {
+                Text(liveActivityTestStatus)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(VoxiiTheme.glass)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(VoxiiTheme.stroke, lineWidth: 1)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(appearance.t("settings.testMessageActivity"))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+
+                Text(appearance.t("settings.testMessageActivityHint"))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+
+                Button(appearance.t("settings.runMessageActivityTest")) {
+                    scheduleMessageLiveActivityTest()
+                }
+                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                .disabled(!VoxiiLiveActivityManager.shared.canPresentLiveActivities)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(VoxiiTheme.glass)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(VoxiiTheme.stroke, lineWidth: 1)
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(appearance.t("settings.testCallActivity"))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.text)
+
+                Text(appearance.t("settings.testCallActivityHint"))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(VoxiiTheme.muted)
+
+                Button(appearance.t("settings.runCallActivityTest")) {
+                    scheduleCallLiveActivityTest()
+                }
+                .buttonStyle(VoxiiGradientButtonStyle(isCompact: true, variant: .neutral))
+                .disabled(!VoxiiLiveActivityManager.shared.canPresentLiveActivities)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(VoxiiTheme.glass)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(VoxiiTheme.stroke, lineWidth: 1)
+            )
+        }
+        .voxiiCard(cornerRadius: 18, padding: 16)
+    }
+
     private var privacyCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(isOn: $appearance.linkPreviewEnabled) {
@@ -2989,6 +4004,138 @@ private struct SettingsHomeView: View {
             return session.serverURL
         }
         return host
+    }
+
+    private func scheduleMessageLiveActivityTest() {
+        let scheduledText = appearance.t("settings.liveActivitiesMessageScheduled")
+        let shownText = appearance.t("settings.liveActivitiesMessageShown")
+        let senderName = appearance.t("settings.liveActivitiesTestSender")
+        let bodyText = appearance.t("settings.liveActivitiesTestBody")
+        let payload = IncomingMessageNotificationPayload(
+            id: "test-message-\(UUID().uuidString)",
+            title: senderName,
+            body: bodyText,
+            senderID: 999001,
+            unreadCount: 2,
+            conversationID: "dm-live-activity-test-\(UUID().uuidString)"
+        )
+        messageLiveActivityTestTask?.cancel()
+        updateLiveActivityStatus(scheduledText)
+        VoxiiPushNotifications.scheduleBackgroundMessageNotification(payload, after: 5)
+
+        messageLiveActivityTestTask = makeLiveActivityTestTask(named: "voxii.message.liveactivity.test") {
+            await VoxiiLiveActivityManager.shared.clearMessageActivities()
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await VoxiiLiveActivityManager.shared.presentIncomingMessage(
+                payload,
+                preferAlertPresentation: true
+            )
+            await MainActor.run {
+                self.updateLiveActivityStatus(shownText)
+                self.messageLiveActivityTestTask = nil
+            }
+        }
+    }
+
+    private func scheduleCallLiveActivityTest() {
+        callLiveActivityTestTask?.cancel()
+        if let previousEventID = activeCallLiveActivityTestEventID {
+            Task {
+                await VoxiiLiveActivityManager.shared.endCall(
+                    eventID: previousEventID,
+                    finalStatus: appearance.t("call.ended")
+                )
+            }
+            activeCallLiveActivityTestEventID = nil
+        }
+        let eventID = "test-call-\(UUID().uuidString)"
+        let scheduledText = appearance.t("settings.liveActivitiesCallScheduled")
+        let shownText = appearance.t("settings.liveActivitiesCallShown")
+        let callerName = appearance.t("settings.liveActivitiesTestCaller")
+        let endedText = appearance.t("call.ended")
+        activeCallLiveActivityTestEventID = eventID
+        updateLiveActivityStatus(scheduledText)
+
+        callLiveActivityTestTask = makeLiveActivityTestTask(named: "voxii.call.liveactivity.test") {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            let payload = IncomingCallPayload(
+                id: eventID,
+                callerId: 999002,
+                callerUsername: callerName,
+                callerAvatar: nil,
+                callerSocketId: nil,
+                callType: "video"
+            )
+
+            await VoxiiLiveActivityManager.shared.reportIncomingCall(
+                payload,
+                preferAlertPresentation: true
+            )
+            await MainActor.run {
+                self.updateLiveActivityStatus(shownText)
+            }
+
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await VoxiiLiveActivityManager.shared.endCall(
+                eventID: eventID,
+                finalStatus: endedText
+            )
+            await MainActor.run {
+                if self.activeCallLiveActivityTestEventID == eventID {
+                    self.activeCallLiveActivityTestEventID = nil
+                }
+                self.callLiveActivityTestTask = nil
+            }
+        }
+        let localNotificationPayload = IncomingCallPayload(
+            id: eventID,
+            callerId: 999002,
+            callerUsername: callerName,
+            callerAvatar: nil,
+            callerSocketId: nil,
+            callType: "video"
+        )
+        VoxiiPushNotifications.scheduleIncomingCallFallbackNotification(localNotificationPayload, after: 5)
+    }
+
+    private func makeLiveActivityTestTask(
+        named name: String,
+        operation: @escaping @Sendable () async -> Void
+    ) -> Task<Void, Never> {
+        let backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: name)
+        return Task {
+            defer {
+                Task { @MainActor in
+                    if backgroundTaskID != .invalid {
+                        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                    }
+                }
+            }
+            await operation()
+        }
+    }
+
+    private func updateLiveActivityStatus(_ text: String) {
+        liveActivityTestStatus = text
+        liveActivityStatusResetTask?.cancel()
+        liveActivityStatusResetTask = Task {
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            await MainActor.run {
+                self.liveActivityTestStatus = nil
+            }
+        }
     }
 
     private func themePreview(_ theme: VoxiiThemeName) -> LinearGradient {

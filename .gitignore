@@ -12,6 +12,7 @@ build/
 
 # SwiftPM
 .build/
+.swift-module-cache/
 
 # Local temporary files
 tmp/
